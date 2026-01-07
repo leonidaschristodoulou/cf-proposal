@@ -229,8 +229,6 @@ def load_classification_dataset(
             immutables=immutables,
         )
 
-
-
     raise ValueError(
         f"Unknown dataset name: {name}. Supported: adult, credit-g (german credit), breast_cancer, diabetes."
     )

@@ -1,4 +1,4 @@
-# pfn_cf_guided.py
+# pfn_cf_guided_onehot.py
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Dict, Any, Optional, Tuple
@@ -28,7 +28,6 @@ class FeatureInfo:
     immutable_num: frozenset[int] = frozenset()
     immutable_cat: frozenset[int] = frozenset() 
 
-
 def _perm_importance_proba_drop(
     predict_proba_fn: PredictProbaFn,
     X_ref: np.ndarray,
@@ -36,7 +35,7 @@ def _perm_importance_proba_drop(
     n_repeats: int,
     rng: np.random.Generator,
     feature_info: Optional[FeatureInfo] = None,
-    aggregate: str = "none", 
+    aggregate: str = "none",
 ) -> np.ndarray:
     """
     Permutation importance on p(x): mean abs change in predicted probabilities after permuting.
@@ -49,6 +48,15 @@ def _perm_importance_proba_drop(
       - aggregate="none": array of shape (d,) column-level importances (cat group importance spread across its columns)
       - aggregate="unit": array of shape (n_units,) where units are [num cols..., cat groups...]
     """
+    X_ref = np.asarray(X_ref)
+    if X_ref.ndim != 2:
+        raise ValueError(f"X_ref must be 2D, got shape {X_ref.shape}")
+    if n_repeats <= 0:
+        raise ValueError(f"n_repeats must be >= 1, got {n_repeats}")
+    if aggregate not in ("none", "unit"):
+        raise ValueError(f"aggregate must be 'none' or 'unit', got {aggregate!r}")
+
+    # Baseline once
     p0 = predict_proba_fn(X_ref).astype(np.float64)
     n, d = X_ref.shape
 
@@ -62,34 +70,55 @@ def _perm_importance_proba_drop(
     if num_idx is None:
         cat_cols = np.zeros(d, dtype=bool)
         for g in cat_groups:
-            cat_cols[g] = True
+            if g.size:
+                cat_cols[g] = True
         num_idx = np.flatnonzero(~cat_cols)
+    else:
+        num_idx = np.asarray(num_idx, dtype=int)
 
-    # Build permutation "units"
-    # Each unit is either a single numeric column, or a categorical group (array of columns)
-    units: List[Tuple[str, np.ndarray]] = []
+    # Build permutation "units" (same as you)
+    units: List[np.ndarray] = []
     for j in num_idx:
-        units.append(("num", np.array([int(j)], dtype=int)))
+        units.append(np.array([int(j)], dtype=int))
     for g in cat_groups:
-        units.append(("cat", g.copy()))
+        units.append(g.copy())
 
     unit_imps = np.zeros(len(units), dtype=np.float64)
 
-    for u, (_kind, cols) in enumerate(units):
-        deltas = np.empty(n_repeats, dtype=np.float64)
+    # --- batched evaluation per unit ---
+    # For each unit, build (n_repeats * n, d) matrix and evaluate predict_proba once.
+    for u, cols in enumerate(units):
+        # Make n_repeats copies of X_ref into one big batch
+        X_stack = np.repeat(X_ref, repeats=n_repeats, axis=0).copy()
+
+        # Apply permutations per repeat to the slice [r*n : (r+1)*n]
         for r in range(n_repeats):
-            Xp = X_ref.copy()
+            sl = slice(r * n, (r + 1) * n)
             perm = rng.permutation(n)
-            # permute whole block for categoricals, single col for numerics
-            Xp[:, cols] = Xp[perm][:, cols]
-            pj = predict_proba_fn(Xp).astype(np.float64)
-            deltas[r] = np.mean(np.abs(pj - p0))
-        unit_imps[u] = float(deltas.mean())
+            X_stack[sl, cols] = X_stack[sl, :][perm][:, cols]
+
+        # Single model call for all repeats of this unit
+        p_stack = predict_proba_fn(X_stack).astype(np.float64)
+
+        # Reshape to (n_repeats, n, ...) and compare to p0 (broadcast)
+        # Works for binary (n,2), multiclass (n,K), or even (n,) if your fn returns 1D.
+        p0_b = p0[None, ...]
+        try:
+            p_stack = p_stack.reshape((n_repeats,) + p0.shape)
+        except ValueError as e:
+            raise ValueError(
+                f"predict_proba_fn returned shape {p_stack.shape} for stacked input "
+                f"but baseline shape is {p0.shape}; cannot reshape to "
+                f"{(n_repeats,) + p0.shape}. Your predict_proba_fn must be consistent."
+            ) from e
+
+        delta = np.abs(p_stack - p0_b)
+        unit_imps[u] = float(delta.mean())
 
     if aggregate == "unit":
         return unit_imps
 
-    # aggregate == "none" -> return per-column importances (backward compatible)
+    # aggregate == "none" -> return per-column importances
     imps = np.zeros(d, dtype=np.float64)
 
     # numeric cols: map unit importance back to that column
@@ -98,7 +127,7 @@ def _perm_importance_proba_drop(
         imps[int(j)] = unit_imps[u]
         u += 1
 
-    # cat groups: spread the group's importance across its columns (uniformly)
+    # cat groups: spread importance across columns uniformly
     for g in cat_groups:
         g_imp = unit_imps[u]
         u += 1
@@ -106,6 +135,84 @@ def _perm_importance_proba_drop(
             imps[g] = g_imp / float(len(g))
 
     return imps
+
+# def _perm_importance_proba_drop(
+#     predict_proba_fn: PredictProbaFn,
+#     X_ref: np.ndarray,
+#     *,
+#     n_repeats: int,
+#     rng: np.random.Generator,
+#     feature_info: Optional[FeatureInfo] = None,
+#     aggregate: str = "none", 
+# ) -> np.ndarray:
+#     """
+#     Permutation importance on p(x): mean abs change in predicted probabilities after permuting.
+
+#     If feature_info with cat_groups is provided:
+#       - permutes each categorical group as a block to preserve one-hot validity.
+#       - supports per-unit importances ("unit") or per-column importances ("none").
+
+#     Returns:
+#       - aggregate="none": array of shape (d,) column-level importances (cat group importance spread across its columns)
+#       - aggregate="unit": array of shape (n_units,) where units are [num cols..., cat groups...]
+#     """
+#     p0 = predict_proba_fn(X_ref).astype(np.float64)
+#     n, d = X_ref.shape
+
+#     cat_groups: List[np.ndarray] = []
+#     num_idx: Optional[np.ndarray] = None
+#     if feature_info is not None:
+#         cat_groups = [np.asarray(g, dtype=int) for g in feature_info.cat_groups]
+#         num_idx = feature_info.num_idx
+
+#     # Infer numeric indices as "all columns not in any cat group" if not provided
+#     if num_idx is None:
+#         cat_cols = np.zeros(d, dtype=bool)
+#         for g in cat_groups:
+#             cat_cols[g] = True
+#         num_idx = np.flatnonzero(~cat_cols)
+
+#     # Build permutation "units"
+#     # Each unit is either a single numeric column, or a categorical group (array of columns)
+#     units: List[Tuple[str, np.ndarray]] = []
+#     for j in num_idx:
+#         units.append(("num", np.array([int(j)], dtype=int)))
+#     for g in cat_groups:
+#         units.append(("cat", g.copy()))
+
+#     unit_imps = np.zeros(len(units), dtype=np.float64)
+
+#     for u, (_kind, cols) in enumerate(units):
+#         deltas = np.empty(n_repeats, dtype=np.float64)
+#         for r in range(n_repeats):
+#             Xp = X_ref.copy()
+#             perm = rng.permutation(n)
+#             # permute whole block for categoricals, single col for numerics
+#             Xp[:, cols] = Xp[perm][:, cols]
+#             pj = predict_proba_fn(Xp).astype(np.float64)
+#             deltas[r] = np.mean(np.abs(pj - p0))
+#         unit_imps[u] = float(deltas.mean())
+
+#     if aggregate == "unit":
+#         return unit_imps
+
+#     # aggregate == "none" -> return per-column importances (backward compatible)
+#     imps = np.zeros(d, dtype=np.float64)
+
+#     # numeric cols: map unit importance back to that column
+#     u = 0
+#     for j in num_idx:
+#         imps[int(j)] = unit_imps[u]
+#         u += 1
+
+#     # cat groups: spread the group's importance across its columns (uniformly)
+#     for g in cat_groups:
+#         g_imp = unit_imps[u]
+#         u += 1
+#         if len(g) > 0:
+#             imps[g] = g_imp / float(len(g))
+
+#     return imps
 
 
 def stageA_build(
@@ -263,7 +370,7 @@ def stageB_generate(
     n_candidates: int = 800,
     max_changed_features: int = 3,
     p_change: float = 0.8,
-    alpha_range: Tuple[float, float] = (0.1, 0.8),
+    alpha_range: Tuple[float, float] = (0.5, 1.0), #(0.1, 0.8),
     base_sigma: float = 0.25,
     sigma_min: float = 0.05,
     sigma_max: float = 1.0,
@@ -299,7 +406,7 @@ def stageB_generate(
     else:
         num_idx = np.arange(d, dtype=int)
 
-    # --- Probability at factual + sigma schedule (same idea as before) ---
+    # Probability at factual + sigma schedule
     p_f = float(predict_proba_fn(x_f[None, :])[0])
     margin = abs(p_f - 0.5)
     scale = np.clip(margin / 0.25, 0.2, 2.5)
@@ -559,7 +666,6 @@ def l0_group_aware(
 
     return num_changed + cat_changed
 
-
 def stageC_select_best(
     *,
     x_f: np.ndarray,
@@ -569,53 +675,75 @@ def stageC_select_best(
     l0_tol: float = 1e-6,
     proba_threshold: float = 0.5,
     require_margin: Optional[float] = None,
-    feature_info: Optional[FeatureInfo] = None, 
+    feature_info: Optional[FeatureInfo] = None,
+    sources: Optional[np.ndarray] = None, 
 ) -> Tuple[Optional[np.ndarray], Dict[str, Any]]:
-    """
-    Select best CF:
-      - must flip
-      - lexicographic: min L0 then min L2 then min |p-0.5|
-      - optional: enforce a proba margin for "strong" CFs
-      - (optional) validate one-hot categoricals
-    """
+
     x_f = np.asarray(x_f, dtype=np.float64).reshape(-1)
     C = np.asarray(C, dtype=np.float64)
 
     n0 = int(len(C))
+    if sources is not None:
+        sources = np.asarray(sources)
+        if sources.shape[0] != n0:
+            raise ValueError(f"sources length {sources.shape[0]} != len(C) {n0}")
+
     if n0 == 0:
         return None, {"status": "no_candidates", "n_candidates": 0, "n_flip": 0}
 
-    # --- optional validity filtering for one-hot categoricals ---
+    # validity filtering
     if feature_info is not None and len(getattr(feature_info, "cat_groups", [])) > 0:
         cat_groups = [np.asarray(g, dtype=int) for g in feature_info.cat_groups]
         ok = onehot_valid_mask(C, cat_groups, tol=l0_tol)
         if not np.all(ok):
             C = C[ok]
+            if sources is not None:
+                sources = sources[ok]
         if len(C) == 0:
-            return None, {
-                "status": "no_valid_candidates",
-                "n_candidates": n0,
-                "n_valid": 0,
-                "n_flip": 0,
-            }
+            return None, {"status": "no_valid_candidates", "n_candidates": n0, "n_valid": 0, "n_flip": 0}
     else:
         cat_groups = []
 
     # --- compute proba and flip on filtered C ---
-    pC = predict_proba_fn(C).astype(np.float64)
+    # --- optional: deduplicate candidates to avoid wasted predict_proba work ---
+    # Works best because StageB returns float32; rounding makes equality stable.
+    dedup_decimals = 6  # tweak: 5–7 typical
+    if C.shape[0] > 1:
+        C_key = np.round(C, dedup_decimals)
+        C_unique, inv = np.unique(C_key, axis=0, return_inverse=True)
+
+        # If we reduced size, keep the corresponding true-valued rows
+        if C_unique.shape[0] < C.shape[0]:
+            # map unique rows back to one representative from original C
+            # (use first occurrence)
+            first = np.zeros(C_unique.shape[0], dtype=int)
+            first.fill(-1)
+            for i, u in enumerate(inv):
+                if first[u] == -1:
+                    first[u] = i
+            C_u = C[first]
+
+            # Predict only on uniques
+            p_u = predict_proba_fn(C_u).astype(np.float64)
+
+            # Expand back to original length if you want 1:1 candidate accounting
+            pC = p_u[inv]
+        else:
+            pC = predict_proba_fn(C).astype(np.float64)
+    else:
+        pC = predict_proba_fn(C).astype(np.float64)
+
     yhatC = (pC >= proba_threshold).astype(int)
     flip = (yhatC == y_desired)
 
     n_flip = int(np.sum(flip))
     if n_flip == 0:
-        return None, {
-            "status": "no_flip",
-            "n_candidates": int(len(C)),
-            "n_flip": 0,
-        }
+        return None, {"status": "no_flip", "n_candidates": int(len(C)), "n_flip": 0}
 
     Cf = C[flip]
     pf = pC[flip]
+    if sources is not None:
+        sf = sources[flip]
 
     # --- group-aware L0 and (simple) L2 ---
     if feature_info is not None and len(cat_groups) > 0:
@@ -642,8 +770,10 @@ def stageC_select_best(
             strong = pf <= require_margin
         if np.any(strong):
             Cf, pf, l0, l2 = Cf[strong], pf[strong], l0[strong], l2[strong]
+            if sources is not None:
+                sf = sf[strong]
+            #Cf, pf, l0, l2 = Cf[strong], pf[strong], l0[strong], l2[strong]
 
-    # --- lexicographic selection ---
     order = np.lexsort((np.abs(pf - 0.5), l2, l0))
     best = int(order[0])
     x_cf = Cf[best].astype(np.float32, copy=False)
@@ -656,4 +786,134 @@ def stageC_select_best(
         "l2": float(l2[best]),
         "p_cf": float(pf[best]),
     }
+    if sources is not None:
+        rep["best_source"] = str(sf[best])
+
     return x_cf, rep
+
+
+# def stageC_select_best(
+#     *,
+#     x_f: np.ndarray,
+#     C: np.ndarray,
+#     predict_proba_fn: PredictProbaFn,
+#     y_desired: int,
+#     l0_tol: float = 1e-6,
+#     proba_threshold: float = 0.5,
+#     require_margin: Optional[float] = None,
+#     feature_info: Optional[FeatureInfo] = None, 
+# ) -> Tuple[Optional[np.ndarray], Dict[str, Any]]:
+#     """
+#     Select best CF:
+#       - must flip
+#       - lexicographic: min L0 then min L2 then min |p-0.5|
+#       - optional: enforce a proba margin for "strong" CFs
+#       - (optional) validate one-hot categoricals
+#     """
+#     x_f = np.asarray(x_f, dtype=np.float64).reshape(-1)
+#     C = np.asarray(C, dtype=np.float64)
+
+#     n0 = int(len(C))
+#     if n0 == 0:
+#         return None, {"status": "no_candidates", "n_candidates": 0, "n_flip": 0}
+
+#     # --- optional validity filtering for one-hot categoricals ---
+#     if feature_info is not None and len(getattr(feature_info, "cat_groups", [])) > 0:
+#         cat_groups = [np.asarray(g, dtype=int) for g in feature_info.cat_groups]
+#         ok = onehot_valid_mask(C, cat_groups, tol=l0_tol)
+#         if not np.all(ok):
+#             C = C[ok]
+#         if len(C) == 0:
+#             return None, {
+#                 "status": "no_valid_candidates",
+#                 "n_candidates": n0,
+#                 "n_valid": 0,
+#                 "n_flip": 0,
+#             }
+#     else:
+#         cat_groups = []
+
+#     # --- compute proba and flip on filtered C ---
+#     # --- optional: deduplicate candidates to avoid wasted predict_proba work ---
+#     # Works best because StageB returns float32; rounding makes equality stable.
+#     dedup_decimals = 6  # tweak: 5–7 typical
+#     if C.shape[0] > 1:
+#         C_key = np.round(C, dedup_decimals)
+#         C_unique, inv = np.unique(C_key, axis=0, return_inverse=True)
+
+#         # If we reduced size, keep the corresponding true-valued rows
+#         if C_unique.shape[0] < C.shape[0]:
+#             # map unique rows back to one representative from original C
+#             # (use first occurrence)
+#             first = np.zeros(C_unique.shape[0], dtype=int)
+#             first.fill(-1)
+#             for i, u in enumerate(inv):
+#                 if first[u] == -1:
+#                     first[u] = i
+#             C_u = C[first]
+
+#             # Predict only on uniques
+#             p_u = predict_proba_fn(C_u).astype(np.float64)
+
+#             # Expand back to original length if you want 1:1 candidate accounting
+#             pC = p_u[inv]
+#         else:
+#             pC = predict_proba_fn(C).astype(np.float64)
+#     else:
+#         pC = predict_proba_fn(C).astype(np.float64)
+
+#     #pC = predict_proba_fn(C).astype(np.float64)
+#     yhatC = (pC >= proba_threshold).astype(int)
+#     flip = (yhatC == y_desired)
+
+#     n_flip = int(np.sum(flip))
+#     if n_flip == 0:
+#         return None, {
+#             "status": "no_flip",
+#             "n_candidates": int(len(C)),
+#             "n_flip": 0,
+#         }
+
+#     Cf = C[flip]
+#     pf = pC[flip]
+
+#     # --- group-aware L0 and (simple) L2 ---
+#     if feature_info is not None and len(cat_groups) > 0:
+#         d = x_f.shape[0]
+#         if feature_info.num_idx is not None:
+#             num_idx = np.asarray(feature_info.num_idx, dtype=int)
+#         else:
+#             cat_cols = np.zeros(d, dtype=bool)
+#             for g in cat_groups:
+#                 cat_cols[g] = True
+#             num_idx = np.flatnonzero(~cat_cols)
+
+#         l0 = l0_group_aware(x_f, Cf, num_idx=num_idx, cat_groups=cat_groups, tol=l0_tol).astype(int)
+#     else:
+#         l0 = np.sum(np.abs(Cf - x_f[None, :]) > l0_tol, axis=1).astype(int)
+
+#     l2 = np.sqrt(np.sum((Cf - x_f[None, :]) ** 2, axis=1)).astype(np.float64)
+
+#     # --- margin constraint, if requested ---
+#     if require_margin is not None:
+#         if y_desired == 1:
+#             strong = pf >= require_margin
+#         else:
+#             strong = pf <= require_margin
+#         if np.any(strong):
+#             Cf, pf, l0, l2 = Cf[strong], pf[strong], l0[strong], l2[strong]
+
+#     # --- lexicographic selection ---
+#     order = np.lexsort((np.abs(pf - 0.5), l2, l0))
+#     best = int(order[0])
+#     x_cf = Cf[best].astype(np.float32, copy=False)
+
+#     rep = {
+#         "status": "ok",
+#         "n_candidates": int(len(C)),
+#         "n_flip": int(np.sum(flip)),
+#         "l0": int(l0[best]),
+#         "l2": float(l2[best]),
+#         "p_cf": float(pf[best]),
+#     }
+#     return x_cf, rep
