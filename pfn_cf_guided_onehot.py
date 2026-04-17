@@ -483,11 +483,15 @@ def stageB_generate(
         fw = fw / fw.sum()
 
         uw_list = []
-        # numeric unit weight = fw[col]
+        # numeric unit weight = fw[col] — only actionable (non-immutable) units
         for j in num_idx:
+            if int(j) in immutable_num:
+                continue
             uw_list.append(float(fw[int(j)]))
-        # cat group unit weight = sum of fw over its columns
-        for g in cat_groups:
+        # cat group unit weight = sum of fw over its columns — only actionable groups
+        for g_i, g in enumerate(cat_groups):
+            if g_i in immutable_cat:
+                continue
             uw_list.append(float(fw[g].sum()))
         uw = np.asarray(uw_list, dtype=np.float64)
         uw = np.maximum(uw, 1e-12)

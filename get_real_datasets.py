@@ -181,6 +181,90 @@ def load_classification_dataset(
             immutables=immutables,
         )
     
+    if name_key in {"heloc", "fico_heloc", "fico-heloc"}:
+        # FICO HELOC dataset — all numeric, binary classification
+        ds = fetch_openml(name="HELOC", version=1, as_frame=as_frame)
+        X_df = ds.data
+
+        # Target: "Good" = 1 (repaid), "Bad" = 0 (default).
+        # The OpenML encoding varies: may be strings ("Good"/"Bad"), lower-case,
+        # or already 1/0 integers — handle all cases.
+        raw = ds.target
+        target = raw.astype(str).str.strip().str.lower()
+        uniques = set(target.unique())
+        if uniques <= {"0", "1"}:
+            # Already binary-encoded as strings "0"/"1"
+            y = target.astype(int).to_numpy()
+        elif {"good", "bad"}.issubset(uniques):
+            y = (target == "good").astype(int).to_numpy()
+        elif np.issubdtype(raw.dtype, np.number):
+            y = raw.astype(int).to_numpy()
+        else:
+            codes, _ = pd.factorize(target, sort=True)
+            y = codes.astype(int)
+
+        num_cols, cat_cols = infer_num_cat_cols(X_df)
+        meta = {
+            "source": "openml",
+            "openml_name": "HELOC",
+            "openml_version": 1,
+            "task": "binary_classification",
+            "positive_label": "Good",
+        }
+        # ExternalRiskEstimate is an external credit score — not actionable by the applicant
+        immutables = ImmutableSpec(num={"ExternalRiskEstimate"}, cat=set())
+        return LoadedDataset(
+            name="heloc",
+            X_df=X_df,
+            y=y,
+            num_cols=num_cols,
+            cat_cols=cat_cols,
+            meta=meta,
+            immutables=immutables,
+        )
+
+    if name_key in {"heart_disease", "heart-disease", "heart", "heart_cleveland", "cleveland"}:
+        # UCI Cleveland Heart Disease via OpenML ("heart-c")
+        ds = fetch_openml("heart-c", version=1, as_frame=as_frame)
+        X_df = ds.data
+
+        # Target: '<50' = no disease (0), '>50_1' = disease (1)
+        # Use numpy-level ops to avoid any pandas index alignment surprises.
+        raw = ds.target.astype(str).str.strip()
+        numeric = pd.to_numeric(raw, errors="coerce")
+        if numeric.notna().all():
+            y_all = (numeric.to_numpy() > 0).astype(int)
+        else:
+            # String labels: positive class starts with '>' (i.e. '>50_1')
+            y_all = raw.str.startswith(">").to_numpy().astype(int)
+
+        # Drop the ~7 rows with missing values in X — use numpy mask to
+        # avoid any index alignment issues between X_df and y_all.
+        mask = X_df.notna().all(axis=1).to_numpy()
+        X_df = X_df.iloc[mask].reset_index(drop=True)
+        y = y_all[mask]
+
+        num_cols, cat_cols = infer_num_cat_cols(X_df)
+        meta = {
+            "source": "openml",
+            "openml_name": "heart-c",
+            "openml_version": 1,
+            "task": "binary_classification_via_binarization",
+            "binarize_rule": "target > 0",
+            "positive_label": "disease (1-4)",
+        }
+        # Age and sex are immutable demographic attributes
+        immutables = ImmutableSpec(num={"age"}, cat={"sex"})
+        return LoadedDataset(
+            name="heart_disease",
+            X_df=X_df,
+            y=y,
+            num_cols=num_cols,
+            cat_cols=cat_cols,
+            meta=meta,
+            immutables=immutables,
+        )
+
     if name_key in {"gmsc", "give_me_some_credit", "give-me-some-credit"}:
         # OpenML dataset "Give-Me-Some-Credit" (id=45577)
         ds = fetch_openml(data_id=45577, as_frame=as_frame)  # :contentReference[oaicite:2]{index=2}
@@ -230,7 +314,8 @@ def load_classification_dataset(
         )
 
     raise ValueError(
-        f"Unknown dataset name: {name}. Supported: adult, credit-g (german credit), breast_cancer, diabetes."
+        f"Unknown dataset name: {name}. Supported: adult, credit-g, breast_cancer, diabetes, "
+        "california_housing, gmsc, heloc, heart_disease."
     )
 
 
