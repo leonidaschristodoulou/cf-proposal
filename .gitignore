@@ -45,3 +45,7 @@ Thumbs.db
 *.log
 ICMLReviewersComments.txt
 NICE_adult.ipynb
+
+# plots
+*.png
+*.pdf

@@ -265,6 +265,147 @@ def load_classification_dataset(
             immutables=immutables,
         )
 
+    if name_key in {"australian", "aus", "australian_credit"}:
+        # AutoML benchmark: Statlog (Australian Credit Approval) via OpenML
+        # Use 'auto' because this dataset is stored as sparse ARFF on OpenML
+        ds = fetch_openml("Australian", version=1, as_frame="auto")
+        X_df = pd.DataFrame(ds.data.toarray() if hasattr(ds.data, "toarray") else ds.data,
+                            columns=ds.feature_names)
+
+        raw = pd.Series(ds.target).astype(str).str.strip()
+        numeric = pd.to_numeric(raw, errors="coerce")
+        if numeric.notna().all():
+            y = (numeric.to_numpy() > 0).astype(int)
+        else:
+            codes, _ = pd.factorize(raw, sort=True)
+            y = codes.astype(int)
+
+        num_cols, cat_cols = infer_num_cat_cols(X_df)
+        meta = {
+            "source": "openml",
+            "openml_name": "Australian",
+            "openml_version": 1,
+            "task": "binary_classification",
+        }
+        # A6 (employment status) and A8 (years at job) are demographic/historical
+        immutables = ImmutableSpec(num=set(), cat=set())
+        return LoadedDataset(
+            name="australian",
+            X_df=X_df,
+            y=y,
+            num_cols=num_cols,
+            cat_cols=cat_cols,
+            meta=meta,
+            immutables=immutables,
+        )
+
+    if name_key in {"sick", "sick_thyroid", "thyroid_sick"}:
+        # AutoML benchmark: Thyroid sick dataset via OpenML
+        ds = fetch_openml("sick", version=1, as_frame="auto")
+        X_df = pd.DataFrame(ds.data.toarray() if hasattr(ds.data, "toarray") else ds.data,
+                            columns=ds.feature_names)
+
+        raw = pd.Series(ds.target).astype(str).str.strip()
+        y = (raw == "sick").astype(int).to_numpy()
+
+        # Drop rows with all-NaN or majority-NaN (sick has some missing values)
+        mask = X_df.notna().mean(axis=1).to_numpy() >= 0.5
+        X_df = X_df.iloc[mask].reset_index(drop=True)
+        y = y[mask]
+
+        num_cols, cat_cols = infer_num_cat_cols(X_df)
+        meta = {
+            "source": "openml",
+            "openml_name": "sick",
+            "openml_version": 1,
+            "task": "binary_classification",
+            "positive_label": "sick",
+        }
+        # Age and sex are demographic immutables
+        immutables = ImmutableSpec(num={"age"}, cat={"sex"})
+        return LoadedDataset(
+            name="sick",
+            X_df=X_df,
+            y=y,
+            num_cols=num_cols,
+            cat_cols=cat_cols,
+            meta=meta,
+            immutables=immutables,
+        )
+
+    if name_key in {"ilpd", "indian_liver", "indian_liver_patient"}:
+        # AutoML benchmark: Indian Liver Patient Dataset via OpenML
+        ds = fetch_openml("ilpd", version=1, as_frame="auto")
+        X_df = pd.DataFrame(ds.data.toarray() if hasattr(ds.data, "toarray") else ds.data,
+                            columns=ds.feature_names)
+
+        raw = pd.Series(ds.target).astype(str).str.strip()
+        # Label "1" = liver patient (positive), "2" = no disease
+        numeric = pd.to_numeric(raw, errors="coerce")
+        if numeric.notna().all():
+            y = (numeric.to_numpy() == 1).astype(int)
+        else:
+            y = (raw == "1").astype(int).to_numpy()
+
+        # Drop rows missing target or with >50% missing features
+        mask = X_df.notna().mean(axis=1).to_numpy() >= 0.5
+        X_df = X_df.iloc[mask].reset_index(drop=True)
+        y = y[mask]
+
+        num_cols, cat_cols = infer_num_cat_cols(X_df)
+        meta = {
+            "source": "openml",
+            "openml_name": "ilpd",
+            "openml_version": 1,
+            "task": "binary_classification",
+            "positive_label": "1 (liver patient)",
+        }
+        # Age and gender are immutable demographics
+        immutables = ImmutableSpec(num={"Age"}, cat={"Gender"})
+        return LoadedDataset(
+            name="ilpd",
+            X_df=X_df,
+            y=y,
+            num_cols=num_cols,
+            cat_cols=cat_cols,
+            meta=meta,
+            immutables=immutables,
+        )
+
+    if name_key in {"blood_transfusion", "blood-transfusion", "blood", "transfusion"}:
+        # AutoML benchmark: Blood Transfusion Service Center (OpenML id 1464)
+        ds = fetch_openml(data_id=1464, as_frame="auto")
+        X_df = pd.DataFrame(ds.data.toarray() if hasattr(ds.data, "toarray") else ds.data,
+                            columns=ds.feature_names)
+
+        raw = pd.Series(ds.target).astype(str).str.strip()
+        # Label "1" = donated blood, "2" = did not donate
+        numeric = pd.to_numeric(raw, errors="coerce")
+        if numeric.notna().all():
+            y = (numeric.to_numpy() == 1).astype(int)
+        else:
+            y = (raw == "1").astype(int).to_numpy()
+
+        num_cols, cat_cols = infer_num_cat_cols(X_df)
+        meta = {
+            "source": "openml",
+            "openml_data_id": 1464,
+            "openml_name": "blood-transfusion-service-center",
+            "task": "binary_classification",
+            "positive_label": "1 (donated)",
+        }
+        # All features are behavioural (recency, frequency, monetary, time) — none immutable
+        immutables = ImmutableSpec(num=set(), cat=set())
+        return LoadedDataset(
+            name="blood_transfusion",
+            X_df=X_df,
+            y=y,
+            num_cols=num_cols,
+            cat_cols=cat_cols,
+            meta=meta,
+            immutables=immutables,
+        )
+
     if name_key in {"gmsc", "give_me_some_credit", "give-me-some-credit"}:
         # OpenML dataset "Give-Me-Some-Credit" (id=45577)
         ds = fetch_openml(data_id=45577, as_frame=as_frame)  # :contentReference[oaicite:2]{index=2}
@@ -315,7 +456,7 @@ def load_classification_dataset(
 
     raise ValueError(
         f"Unknown dataset name: {name}. Supported: adult, credit-g, breast_cancer, diabetes, "
-        "california_housing, gmsc, heloc, heart_disease."
+        "california_housing, gmsc, heloc, heart_disease, australian, sick, ilpd, blood_transfusion."
     )
 
 
