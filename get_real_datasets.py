@@ -313,6 +313,9 @@ def load_classification_dataset(
         X_df = X_df.iloc[mask].reset_index(drop=True)
         y = y[mask]
 
+        # Drop columns that are entirely NaN (e.g. TBG has no observed values)
+        X_df = X_df.dropna(axis=1, how="all")
+
         num_cols, cat_cols = infer_num_cat_cols(X_df)
         meta = {
             "source": "openml",

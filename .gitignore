@@ -30,6 +30,7 @@ ENV/
 *.hdf5
 *.pkl
 *.pickle
+*.joblib
 
 # OS
 .DS_Store
@@ -49,3 +50,8 @@ NICE_adult.ipynb
 # plots
 *.png
 *.pdf
+
+# HPC
+*.err
+*.out
+connection_info.txt
