@@ -5,7 +5,7 @@
 #SBATCH --nodes=1                   # Number of nodes
 #SBATCH --gres=gpu:1                # Number of GPUs
 #SBATCH --ntasks-per-node=1         # Number of tasks
-#SBATCH --cpus-per-task=4           # Number of cpu cores
+#SBATCH --cpus-per-task=8           # Number of cpu cores
 #SBATCH --mem=20G                   # Total memory per node
 #SBATCH --output=job.%j.out         # Stdout (%j=jobId)
 #SBATCH --error=job.%j.err          # Stderr (%j=jobId)

@@ -421,12 +421,19 @@ def stageB_generate(
     else:
         lo_num = hi_num = None
 
-    def clip_numeric_(x: np.ndarray) -> np.ndarray:
+    # map column index → position in num_idx (for lo_num/hi_num lookup)
+    num_col_to_pos: dict = {int(j): i for i, j in enumerate(num_idx)}
+
+    def clip_chosen_numeric_(x: np.ndarray, chosen_units: List[int]) -> np.ndarray:
+        """Clip only the numeric columns that were actually modified."""
         if lo_num is None:
             return x
-        xn = x[num_idx]
-        xn = np.minimum(np.maximum(xn, lo_num), hi_num)
-        x[num_idx] = xn
+        for ui in chosen_units:
+            kind, payload = units[ui]
+            if kind == "num":
+                j = int(payload[0])
+                pos = num_col_to_pos[j]
+                x[j] = np.clip(x[j], lo_num[pos], hi_num[pos])
         return x
 
     # --- Build "units": numerics are singletons; cats are groups ---
@@ -585,7 +592,7 @@ def stageB_generate(
         chosen = sample_units()
         x = x_f.copy()
         x = apply_anchor_or_boundary_mix(x, donor, chosen)
-        x = clip_numeric_(x)
+        x = clip_chosen_numeric_(x, chosen)
         C_list.append(x)
         sources.append("anchor_mix")
 
@@ -596,7 +603,7 @@ def stageB_generate(
         chosen = sample_units()
         x = x_f.copy()
         x = apply_anchor_or_boundary_mix(x, donor, chosen)
-        x = clip_numeric_(x)
+        x = clip_chosen_numeric_(x, chosen)
         C_list.append(x)
         sources.append("boundary_mix")
 
@@ -605,7 +612,7 @@ def stageB_generate(
         chosen = sample_units()
         x = x_f.copy()
         x = apply_guided_noise(x, chosen)
-        x = clip_numeric_(x)
+        x = clip_chosen_numeric_(x, chosen)
         C_list.append(x)
         sources.append("guided_noise")
 
