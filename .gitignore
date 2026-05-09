@@ -57,3 +57,5 @@ NICE_adult.ipynb
 connection_info.txt
 
 real_datasets/
+pace_v100_results/
+launch_jupyter.sh

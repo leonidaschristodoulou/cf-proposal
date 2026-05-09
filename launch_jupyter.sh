@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH --job-name=cfprop
-#SBATCH --partition=gpu             # Partition
+#SBATCH --partition=a100            # Partition
 #SBATCH --nodes=1                   # Number of nodes
 #SBATCH --gres=gpu:1                # Number of GPUs
 #SBATCH --ntasks-per-node=1         # Number of tasks
@@ -22,6 +22,14 @@ conda activate tabpfn
 # Add our environment as a notebook kernel
 python -m ipykernel install --user --name=tabpfn
 
+# Figure out the directory containing this script so outputs land there
+if [ -n "${SLURM_JOB_ID:-}" ]; then
+    SCRIPT_PATH=$(scontrol show job "$SLURM_JOB_ID" | awk -F= '/Command=/{print $2}')
+else
+    SCRIPT_PATH=$(realpath "$0")
+fi
+SCRIPT_DIR=$(dirname "$SCRIPT_PATH")
+
 # Compute node hostname
 HOSTNAME=$(hostname)
 
@@ -36,12 +44,12 @@ HASHED_PASSWORD=$(python -c "from jupyter_server.auth import passwd; print(passw
 
 
 # Run Jupyter notebook
-jupyter notebook --port=$JUPYTER_PORT --NotebookApp.password="$HASHED_PASSWORD" --notebook-dir="$HOME" --no-browser --ip 0.0.0.0 > jupyter.log 2>&1 &
+jupyter notebook --port=$JUPYTER_PORT --NotebookApp.password="$HASHED_PASSWORD" --notebook-dir="$SCRIPT_DIR" --no-browser --ip 0.0.0.0 > "$SCRIPT_DIR/jupyter.log" 2>&1 &
 
 sleep 5
 
 
-LOGIN_HOST="cyclone.hpcf.cyi.ac.cy"
+LOGIN_HOST="front01.hpcf.cyi.ac.cy"
 
 
 # Prepare the message to be displayed and saved to a file
@@ -58,6 +66,6 @@ EOF
 )
 
 # Print the connection details to both the terminal and a txt file
-echo "$CONNECTION_MESSAGE" | tee ./connection_info.txt
+echo "$CONNECTION_MESSAGE" | tee "$SCRIPT_DIR/connection_info.txt"
 
 wait

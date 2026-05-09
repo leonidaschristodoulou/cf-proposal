@@ -151,19 +151,25 @@ def load_classification_dataset(
         local = _load_local("diabetes")
         if local:
             X_df, y_raw = local
-            y = pd.to_numeric(pd.Series(y_raw), errors="coerce").astype(int).to_numpy()
-            thr = None
         else:
             bunch = load_diabetes(as_frame=True)
             X_df = bunch.data if as_frame else pd.DataFrame(bunch.data, columns=bunch.feature_names)
-            y_reg = bunch.target.to_numpy()
+            y_raw = bunch.target
+
+        y_float = pd.to_numeric(pd.Series(y_raw), errors="coerce").to_numpy(dtype=float)
+        unique_vals = set(np.unique(y_float[~np.isnan(y_float)]).tolist())
+        if unique_vals <= {0.0, 1.0}:
+            # CSV was already saved with binarized labels
+            y = y_float.astype(int)
+            thr = None
+        else:
             if diabetes_binarize == "median":
-                thr = float(np.median(y_reg))
+                thr = float(np.median(y_float))
             elif diabetes_binarize == "threshold":
                 thr = float(diabetes_threshold)
             else:
                 raise ValueError("diabetes_binarize must be 'median' or 'threshold'.")
-            y = (y_reg >= thr).astype(int)
+            y = (y_float >= thr).astype(int)
 
         num_cols, cat_cols = infer_num_cat_cols(X_df)
         meta = {
