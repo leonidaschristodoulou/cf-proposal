@@ -1,6 +1,6 @@
 # pfn_cf_guided_onehot.py
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Dict, Any, Optional, Tuple
 import numpy as np
 
@@ -26,7 +26,42 @@ class FeatureInfo:
     num_idx: Optional[np.ndarray] = None
 
     immutable_num: frozenset[int] = frozenset()
-    immutable_cat: frozenset[int] = frozenset() 
+    immutable_cat: frozenset[int] = frozenset()
+
+
+@dataclass
+class FeatureConstraints:
+    """
+    Per-feature constraints applied in Stage C before lexicographic selection.
+
+    bounds:   {col_idx: (lo, hi)} — absolute bounds on the CF value; either bound can be None.
+    monotone: {col_idx: 'increase' | 'decrease'}
+              'increase' → x_cf[j] >= x_f[j]  (e.g. age, years of experience)
+              'decrease' → x_cf[j] <= x_f[j]  (e.g. debt level)
+    """
+    bounds: Dict[int, Tuple[Optional[float], Optional[float]]] = field(default_factory=dict)
+    monotone: Dict[int, str] = field(default_factory=dict)
+
+
+def _constraints_mask(
+    Cf: np.ndarray,
+    x_f: np.ndarray,
+    constraints: FeatureConstraints,
+) -> np.ndarray:
+    """Return a boolean mask over rows of Cf that satisfy all constraints."""
+    mask = np.ones(len(Cf), dtype=bool)
+    for j, (lo, hi) in constraints.bounds.items():
+        if lo is not None:
+            mask &= Cf[:, j] >= lo
+        if hi is not None:
+            mask &= Cf[:, j] <= hi
+    for j, direction in constraints.monotone.items():
+        if direction == "increase":
+            mask &= Cf[:, j] >= x_f[j]
+        elif direction == "decrease":
+            mask &= Cf[:, j] <= x_f[j]
+    return mask
+
 
 def _perm_importance_proba_drop(
     predict_proba_fn: PredictProbaFn,
@@ -687,7 +722,8 @@ def stageC_select_best(
     proba_threshold: float = 0.5,
     require_margin: Optional[float] = None,
     feature_info: Optional[FeatureInfo] = None,
-    sources: Optional[np.ndarray] = None, 
+    constraints: Optional[FeatureConstraints] = None,
+    sources: Optional[np.ndarray] = None,
 ) -> Tuple[Optional[np.ndarray], Dict[str, Any]]:
 
     x_f = np.asarray(x_f, dtype=np.float64).reshape(-1)
@@ -772,6 +808,15 @@ def stageC_select_best(
         l0 = np.sum(np.abs(Cf - x_f[None, :]) > l0_tol, axis=1).astype(int)
 
     l2 = np.sqrt(np.sum((Cf - x_f[None, :]) ** 2, axis=1)).astype(np.float64)
+
+    # --- feature value constraints (hard filter) ---
+    if constraints is not None:
+        ok = _constraints_mask(Cf, x_f, constraints)
+        if not np.any(ok):
+            return None, {"status": "no_feasible", "n_candidates": int(len(C)), "n_flip": n_flip, "n_feasible": 0}
+        Cf, pf, l0, l2 = Cf[ok], pf[ok], l0[ok], l2[ok]
+        if sources is not None:
+            sf = sf[ok]
 
     # --- margin constraint, if requested ---
     if require_margin is not None:

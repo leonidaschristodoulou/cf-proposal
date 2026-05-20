@@ -110,7 +110,7 @@ def load_classification_dataset(
         y = (pd.Series(y_raw).astype(str).str.strip() == "good").astype(int).to_numpy()
 
         num_cols, cat_cols = infer_num_cat_cols(X_df)
-        immutables = ImmutableSpec(num={}, cat={"Marital Status"})
+        immutables = ImmutableSpec(num={"age"}, cat={"purpose", "personal_status"})
         meta = {
             "source": "openml",
             "openml_name": "credit-g",
@@ -393,7 +393,7 @@ def load_classification_dataset(
             "task": "binary_classification",
             "positive_label": "1 (liver patient)",
         }
-        immutables = ImmutableSpec(num={"Age"}, cat={"Gender"})
+        immutables = ImmutableSpec(num={"V1"}, cat={"V2"})
         return LoadedDataset(
             name="ilpd",
             X_df=X_df, y=y,
@@ -466,7 +466,7 @@ def load_classification_dataset(
             "task": "binary_classification",
             "positive_label": "ckd",
         }
-        immutables = ImmutableSpec(num={"age"}, cat={"htn", "dm", "cad"})
+        immutables = ImmutableSpec(num={"Htn"}, cat=set())
         return LoadedDataset(
             name="chronic_kidney_disease",
             X_df=X_df, y=y,
