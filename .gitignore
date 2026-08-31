@@ -54,6 +54,7 @@ NICE_adult.ipynb
 # HPC
 *.err
 *.out
+*.sbatch
 connection_info.txt
 
 real_datasets/
