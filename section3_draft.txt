@@ -1,0 +1,341 @@
+\section{Proposal-based Counterfactuals}\label{sec:pace}
+
+CE explanations are defined as follows. Let $f : \mathbb{R}^d \to [0,1]$ be a binary probabilistic trained predictor operating on a
+$d$-dimensional model-space with numeric features standardized, categorical
+features one-hot encoded and a decision threshold $\tau$ (we use $\tau = 0.5$
+throughout). Given a factual instance $x_f \in \mathbb{R}^d$ with predicted label
+$\hat{y}_f = \mathbb{1}[f(x_f) \ge \tau]$ and a desired class $y_{\mathrm{des}} = 1 -
+\hat{y}_f$, a CE is a point $x_{cf} \in \mathbb{R}^d$ such
+that $\mathbb{1}[f(x_{cf}) \ge \tau] = y_{\mathrm{des}}$, subject to feasibility
+constraints on which coordinates of $x_f$ may change and by how much.
+
+Coordinates of $x \in \mathbb{R}^d$ are grouped into feature
+units $U = \{u_1, \dots, u_m\}$, with numerical features treated as independent units and  
+one-hot-encoded categorical feature forming a single unit so that their changes are not independent. 
+Moreover, in most realistic situations, $U$ partitions into a mutable set
+$U_{\mathrm{mut}}$ and an immutable set $U_{\mathrm{imm}} = U \setminus U_{\mathrm{mut}}$, 
+with the members thereof provided by the user.
+
+PACE follows a generative approach to CE: It casts
+the problem as an assembly of guided, plausible CE candidates, which are then sorted
+lexicographically, again following users' preferences. The method enforces on
+the CE candidates hard feasibility constraints which are not learned by the data but are provided by the user. 
+PACE also ensures true class flip and consistent one-hot encoded features. 
+Among the set of feasible candidates, it then applies a strict
+preference for example, one that first prioritizes sparsity ($\ell_0$) and,
+subsequently, proximity ($\ell_2$). 
+PACE takes as input the $z$-normalized training set, the black-box prediction
+function of the classifier,
+whose predictions we seek to explain (\emph{target} model), and an optional
+auxiliary \emph{guidance} model. 
+
+Given the factual $x_f$ and a reference pool $R \subseteq X_{\mathrm{train}}$
+(the training set in model space), PACE constructs candidates via three \emph{proposal
+types}, each a map $(x_f, R) \mapsto x_{cand} \in \mathbb{R}^d$:
+
+\begin{itemize}
+  \item \textbf{anchor}: $x_{cand} \in R$ is a training point already on the desired side of the
+  boundary ($f(x_{cand})$ consistent with $y_{\mathrm{des}}$), used directly or as an
+  interpolation endpoint.
+  \item \textbf{boundary}: $x_{cand}$ is drawn from a pool of training points near the decision
+  boundary ($f(\cdot) \approx \tau$), then interpolated toward $x_f$.
+  \item \textbf{guided noise}: $x_{cand} = x_f$ perturbed along a subset of mutable units, with
+  per-unit perturbation scale and unit-selection probability governed by importance weights.
+\end{itemize}
+
+Each proposal type draws with probability $\pi_a, \pi_b, \pi_n$ respectively, until a candidate set $C = \{x_{cand}^{(1)}, \dots,
+x_{cand}^{(M)}\}$ of size $M$ is assembled.
+A candidate $x_{cand} \in C$ is feasible if:
+(i) it flips the predicted class, $\mathbb{1}[f(x_{cand}) \ge \tau] = y_{\mathrm{des}}$;
+(ii) every categorical unit's one-hot block is valid;
+(iii) it leaves every $u \in U_{\mathrm{imm}}$ unchanged, and every changed numeric
+unit stays within its training-quantile range (clipped to
+$[q_{0.01}, q_{0.99}]$ per feature), 
+and
+(iv) it changes at most $s$ feature units from $x_f$. 
+
+\revitem{M1}{R3, ED}{\textbf{Add a formal problem statement BEFORE Algorithm~1.}
+Define, in this order, with notation fixed up front: factual $x_f$; predictor
+$f:\mathbb{R}^d\to[0,1]$; threshold $\tau$; desired class $y_{\mathrm{des}}$;
+feature units $\mathcal{U}$ (numeric singletons + one-hot groups) and
+$\mathcal{U}_{\mathrm{mut}}/\mathcal{U}_{\mathrm{imm}}$; the \emph{proposal space}
+and the three \emph{proposal types} as maps from $(x_f,\text{reference pool})$ to a
+candidate; the candidate set $\mathcal{C}$; feasibility constraints (true class flip,
+valid one-hot, range/immutability); the scoring/filter rule; and the lexicographic
+selection rule $(\ell_0\to\ell_2\to|f(x)-\tau|)$. Only then the pseudocode.}
+
+This directly answers R1's ``how is constrained interpolation implemented'': it is a
+per-candidate, importance-weighted random subset of $\le s$ units, each moved a
+shared-$\alpha$ fraction of the way from $x_f$ toward a donor (numeric) or set equal to
+the donor (categorical) --- not a global interpolation over all features.
+
+\begin{table}[h]
+\centering
+\caption{Reconciliation of PACE notation with the hyperparameters of Table~\ref{tab:pace_hyperparams}.}
+\label{tab:pace_notation_reconcile}
+\small
+\begin{tabular}{lp{2.7cm}p{2.05cm}p{4.45cm}}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} & \textbf{Value} & \textbf{Source} \\
+\midrule
+$\pi_a, \pi_b, \pi_n$ & anchor / boundary / noise mixture weights & $0.50, 0.35, 0.15$ & \texttt{stageB\_generate} call args (M1) \\
+$M$ & candidate set size & $1000$ & \texttt{run\_benchmark}'s \texttt{guided\_n\_candidates} (default: 800) \\
+$s$ & max changed feature units & $8$ & \texttt{run\_benchmark}'s \texttt{guided\_max\_changed\_features} (default: 3) \\
+$\gamma$ & importance-sharpening exponent & $1.0$ & \texttt{stageA\_build}'s \texttt{gamma} \\
+$p_{ch}$ & probability a candidate changes anything & $0.8$ & \texttt{p\_change} \\
+$[\alpha_{\min}, \alpha_{\max}]$ & interpolation weight range & $[0.5, 1.0]$ & \texttt{alpha\_range} \\
+$\sigma_{\mathrm{base}}$ & base noise scale & $0.25$ & \texttt{base\_sigma} \\
+$\sigma_{\min}, \sigma_{\max}$ & noise scale clip bounds & $0.05, 1.0$ & \texttt{sigma\_min} / \texttt{sigma\_max} \\
+$k_A$ & anchor pool size & $250$ & \texttt{guided\_anchor\_k} \\
+$k_B$ & boundary pool size & $200$ (unverified at call site) & \texttt{stageA\_build}'s \texttt{boundary\_k} default \\
+$q_{\mathrm{low}}, q_{\mathrm{high}}$ & quantile-clip bounds & $0.01, 0.99$ & \texttt{q\_low} / \texttt{q\_high} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+\revitem{M3}{R2, R3}{\textbf{Split this section into per-stage subsections}, each
+defining its symbols in prose before they appear in pseudocode:
+3.1 Feature-importance estimation (Stage A);
+3.2 Boundary/anchor pools;
+3.3 Candidate generation (anchor / boundary / noise);
+3.4 Range constraints;
+3.5 Dedup, filter, lexicographic selection.
+Algorithm line numbers are already enabled below.}
+
+\subsection{Stage A: Feature Importance and Candidate Pools}\label{sec:stageA}
+
+\revitem{M6}{R1, R3 (asked twice)}{\textbf{Clarify the guidance/target split ---
+verified from \texttt{core.py}.} State plainly: (i) PACE uses \emph{two} models; a
+guidance model drives Stage~A (permutation importance, anchor/boundary pools,
+\texttt{p\_train}) and Stage~B, while the target model is used only for $p_f$ and
+Stage~C selection. (ii) Importance is \emph{global permutation} importance on the
+guidance model --- not SHAP, not post-hoc on the target (answers R1 directly).
+(iii) PACE still validates and selects against the true target, so it is not
+``explaining a surrogate''. (iv) \textbf{Answer R3's repeated question explicitly:
+only PACE uses a surrogate; DiCE, NICE and MCCE all query the target directly.}
+Frame the asymmetry as the design (confine expensive-model calls to one batched
+step), and concede the flip side --- when the surrogate guides the target poorly
+(TabPFN, Breast Cancer) PACE's guidance degrades, which plausibly connects to the
+Section~\ref{sec:tradeoff} incompleteness.}
+
+The first part of the algorithm (Stage A) performs two guidance-model computations that are used 
+downstream: estimating per-unit
+importance weights (Section~\ref{sec:stageA_importance}) and constructing the
+boundary and anchor pools used to seed interpolation (Section~\ref{sec:stageA_pools}).
+
+\subsubsection{Feature-importance estimation}\label{sec:stageA_importance}
+Feature importance \citep{fisher2019all} weights $w$ are computed once per dataset and model pair, using a guidance model $f_{\mathrm{guide}}$. 
+For each feature unit $u \in U$, we permute $u$'s values across a reference sample $X_{\mathrm{ref}}$
+and measure the mean absolute change in $f_{\mathrm{guide}}$'s output, repeated \texttt{perm\_repeats} $= 8$
+times and averaged, giving raw importance $I(u)$. Note that for consistency categorical units are permuted as a block, to preserve one-hot validity. The feature importance weights are further fine-tuned as follows:
+\[
+w(u) \propto \max(I(u), \varepsilon)^{\gamma}. 
+\]
+We set $\gamma = 1.0$. Finaly, the $w(u)$ are normalized (Algorithm~\ref{alg:stageA_importance}).
+
+PACE allows for different model than the target one for which CE are needed to be used for calculating $w$. This is can be useful for models that are slow on inference, however there's the drawback that a less accurate model can produce less informative weights. 
+
+\begin{algorithm}[htbp]
+\caption{Importance estimation}
+\label{alg:stageA_importance}
+\begin{algorithmic}[1]
+\Require guidance model $f_{\mathrm{guide}}$, reference sample $X_{\mathrm{ref}}$, exponent $\gamma$
+\Ensure sampling weights $w(u)$ for $u \in U$
+\For{each feature unit $u \in U$}
+  \State $I(u) \gets \mathrm{permutation\_importance}(f_{\mathrm{guide}}, X_{\mathrm{ref}}, u, \mathrm{repeats}=8)$
+\EndFor
+\State $w(u) \gets \max(I(u), \varepsilon)^{\gamma}$ for all $u \in U$
+\State $w(u) \gets w(u) \big/ \sum_{u' \in U} w(u')$ \Comment{normalize to a distribution}
+\State \Return $w$
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Anchor / boundary pools}\label{sec:stageA_pools}
+The anchor and boundary pool are drawn from the training set, both using
+$f_{\mathrm{guide}}$'s predicted probabilities $p = f_{\mathrm{guide}}(X_{\mathrm{train}})$ (see Algorithm~\ref{alg:stageA_pools}):
+
+\begin{itemize}
+\item \textbf{Anchor pool} ($k_A $): These $k_A=250$ training points are computed per factual. 
+They are chosen as the most marginal members of the desired class, not just any point on the correct side.
+  \item \textbf{Boundary pool} ($k_B$): the $k_B=200$ training points with smallest margin
+  $|p_i - 0.5|$ overall balanced between
+  predicted classes when both are available. Computed once per model, independent of any specific factual.
+\end{itemize}
+
+\begin{algorithm}[htbp]
+\caption{Boundary / anchor pool construction}
+\label{alg:stageA_pools}
+\begin{algorithmic}[1]
+\Require guidance probabilities $p$ (cached once per model), desired class $y_{\mathrm{des}}$, pool sizes $k_B$, $k_A$
+\Ensure boundary pool $B$, anchor pool $A$
+\State $\mathrm{margin}_i \gets |p_i - 0.5|$ for all training points $i$
+\State $B \gets$ the $k_B$ indices with smallest $\mathrm{margin}_i$, class-balanced \Comment{once per model}
+\State $\mathrm{desired} \gets \{\, i : \mathrm{round}(p_i) = y_{\mathrm{des}} \,\}$
+\State $A \gets$ the $k_A$ indices in $\mathrm{desired}$ with smallest $\mathrm{margin}_i$ \Comment{per factual}
+\State \Return $B, A$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Stage B: Candidate Generation}\label{sec:stageB}
+
+Stage B turns the weights $w(u)$ and pools $A$ and $B$ from Stage A into a candidate set $C$ of size $M$. 
+The $M$ candidates are split across the three proposal types by fixed mixture weights $\pi_a, \pi_b, \pi_n = 0.50, 0.35, 0.15$, giving budgets $M_a = \mathrm{round}(M \pi_a)$, $M_b = \mathrm{round}(M \pi_b)$, and $M_n = M - M_a - M_b$. 
+If the anchor pool $A$ is empty, its budget is reassigned to boundary. % ($M_b \mathrel{\mathord{+}\mathord{=}} M_a$, $M_a \leftarrow 0$).
+Each of the $M$ candidates is then generated independently by the following four steps.
+
+\textbf{1. Unit selection.} Every candidate first draws a small set of feature units to change, regardless of which proposal type it belongs to. Given the maximum number of features to change $s$, the number of changed units $k$, is chosen from $\mathrm{Unif}\{1,\dots,s\}$ \footnote{With probability $1 - p_{ch}$ no units are chosen at all ($k=0$), so that a subset of candidates trivially reproduce $x_f$ before Stage C's flip check discards them}. Given $k > 0$, which $k$ units are changed is a weighted sample without replacement from $U$, with sampling probability proportional to $w(u)$ from Section~\ref{sec:stageA_importance}. Importance therefore governs the probability by which units are selected, not which units are eligible since every $u \in U$ can in principle be chosen.
+
+\textbf{2. Interpolation (anchor and boundary candidates only).} For anchor and boundary candidates, a donor point $d$ is drawn uniformly at random from the corresponding pool. The candidate is then built by constrained interpolation: only the $k$ units chosen in step 1 are moved from $x_f$ toward $d$, every other unit is left untouched, so the interpolation is constrained to a small, importance-weighted subset of features rather than a blend over the whole vector. Concretely, for a shared draw from the range $\alpha \sim \mathrm{Unif}(\alpha_{\min}, \alpha_{\max})$, a chosen numeric unit $u = \{j\}$ is updated as
+\[
+x_j \leftarrow (1-\alpha)\, x_{f,j} + \alpha\, d_j + \eta, \qquad \eta \sim \mathcal{N}(0, \sigma),
+\]
+a convex combination of the factual and donor values plus Gaussian jitter, while a chosen categorical unit (one-hot group) is simply updated by copying the donor's block outright.
+
+\textbf{3. Guided noise (noise candidates only).} Noise candidates involve no donor point at all: starting from $x = x_f$, each chosen numeric unit is perturbed directly, $x_j \leftarrow x_{f,j} + \eta$, $\eta \sim \mathcal{N}(0,\sigma)$, and each chosen categorical unit has its category resampled from the empirical marginal distribution over that feature's levels. Guided noise thus reaches parts of the feasible region no training point occupies, at the cost of no longer being related to any observed donor.
+
+\textbf{4. Range clipping.} Every unit actually changed by steps 2--3 is clipped to $[q_{0.01}, q_{0.99}]$, the 1st/99th percentile of that feature in the training data, applied per candidate immediately after generation rather than as a separate downstream pass.
+
+\begin{algorithm}[htbp]
+\caption{Candidate generation}
+\label{alg:stageB_candidates}
+\begin{algorithmic}[1]
+\Require $x_f$, weights $w(u)$, boundary pool $B$, anchor pool $A$, candidate budget $M$,
+mixture weights $\pi_a,\pi_b,\pi_n$, max changed units $s$, change probability $p_{ch}$,
+interpolation range $[\alpha_{\min},\alpha_{\max}]$, noise scale $\sigma$
+\Ensure candidate set $C$ with $|C| = M$
+\State $M_a \gets \mathrm{round}(M \cdot \pi_a)$, $M_b \gets \mathrm{round}(M \cdot \pi_b)$, $M_n \gets M - M_a - M_b$
+\If{$A = \emptyset$} \State $M_b \gets M_b + M_a$; $M_a \gets 0$ \EndIf
+\State $C \gets \emptyset$
+\For{$i = 1$ to $M_a$} \Comment{anchor candidates}
+  \State $\mathrm{donor} \gets \mathrm{uniform\_random\_choice}(A)$
+  \State $\mathrm{chosen} \gets \mathrm{sample\_units}(w, s, p_{ch})$
+  \State $x \gets \mathrm{constrained\_interpolate}(x_f, \mathrm{donor}, \mathrm{chosen}, [\alpha_{\min},\alpha_{\max}], \sigma)$
+  \State $C \gets C \cup \{\, \mathrm{clip\_to\_quantiles}(x, \mathrm{chosen}) \,\}$\label{ln:clip-anchor}
+\EndFor
+\For{$i = 1$ to $M_b$} \Comment{boundary candidates}
+  \State $\mathrm{donor} \gets \mathrm{uniform\_random\_choice}(B)$
+  \State $\mathrm{chosen} \gets \mathrm{sample\_units}(w, s, p_{ch})$
+  \State $x \gets \mathrm{constrained\_interpolate}(x_f, \mathrm{donor}, \mathrm{chosen}, [\alpha_{\min},\alpha_{\max}], \sigma)$
+  \State $C \gets C \cup \{\, \mathrm{clip\_to\_quantiles}(x, \mathrm{chosen}) \,\}$\label{ln:clip-boundary}
+\EndFor
+\For{$i = 1$ to $M_n$} \Comment{guided-noise candidates}
+  \State $\mathrm{chosen} \gets \mathrm{sample\_units}(w, s, p_{ch})$
+  \State $x \gets \mathrm{guided\_noise}(x_f, \mathrm{chosen}, \sigma)$
+  \State $C \gets C \cup \{\, \mathrm{clip\_to\_quantiles}(x, \mathrm{chosen}) \,\}$\label{ln:clip-noise}
+\EndFor
+\State \Return $C$ \Comment{$|C| = M$}
+\end{algorithmic}
+\end{algorithm}
+
+
+\subsection{Stage C: Filter, Deduplicate, and Select}\label{sec:stageC_select}
+
+The algorithm now can make use of the target model on the batch of CE candidates. Depending on the users' preferences this is the only point in the pipeline that requires running a possibly expensive target predictive model. Prior to this final run, Stage C filters for validity and removes duplicates from the candidate pool. 
+
+Among the feasible subset $C_{\mathrm{feas}} \subseteq C$, PACE returns
+\[
+x_{cf} = \operatorname*{arg\,lex\,min}_{x \in C_{\mathrm{feas}}} \big(\, \ell_0(x, x_f),\ \ell_2(x, x_f),\ |f(x) - \tau| \,\big),
+\]
+a lexicographic minimization: First by our sparsity proxy $\ell_0$, 
+\[
+\ell_0(x, x_f) = \sum_{u \in U} \mathbb{1}\big[\, x_u \neq x_{f,u} \,\big],
+\]
+where for a numeric unit $u = {j}$, is $x_u \neq x_{f,u}$ $|x_j - x_{f,j}| > \epsilon_{\mathrm{tol}}$, and for a categorical unit (one-hot group) $u$ with columns $\mathrm{cols}(u)$, $\exists, j \in \mathrm{cols}(u) : |x_j - x_{f,j}| > \epsilon_{\mathrm{tol}}$  (i.e. the change is recorded at the group level).
+Second criterion in the lexicographic selection is the distance proxy $\ell_2$, 
+\[
+\ell_2(x, x_f) = \| x - x_f \|_2 = \sqrt{\sum_{j=1}^{d} (x_j - x_{f,j})^2},
+\]
+and the final criterion is the proximity of $f(x)$ to the decision boundary as the final tiebreaker. 
+If $C_{\mathrm{feas}} = \emptyset$, PACE returns $\varnothing$ (no CE found).
+
+\begin{algorithm}[htbp]
+\caption{Filter, dedup, score, select}
+\label{alg:stageC_select}
+\begin{algorithmic}[1]
+\Require candidate set $C$ ($|C| = M$), target model $f$, factual $x_f$, desired class $y_{\mathrm{des}}$,
+threshold $\tau$, immutable units $U_{\mathrm{imm}}$, sparsity tolerance $\ell_{0,\mathrm{tol}}$
+\Ensure counterfactual $x_{\mathrm{cf}}$ or $\varnothing$
+\State $C \gets \{\, x \in C : \mathrm{onehot\_valid}(x) \,\}$ \Comment{drop malformed one-hot blocks}
+\If{$C = \emptyset$} \State \Return $\varnothing$, \textit{``no\_valid\_candidates''} \EndIf
+\State $C_{\mathrm{unique}} \gets \mathrm{deduplicate}(C, \mathrm{decimals}=6)$ \Comment{round-and-unique}
+\State $p \gets f(C_{\mathrm{unique}})$ \Comment{single batched target call}
+\State $p \gets \mathrm{expand}(p, C)$ \Comment{map back to $|C|$ rows}
+\State $\mathrm{flip} \gets \{\, x \in C : \mathbb{1}[p(x) \ge \tau] = y_{\mathrm{des}} \,\}$
+\If{$\mathrm{flip} = \emptyset$} \State \Return $\varnothing$, \textit{``no\_flip''} \EndIf
+\State $\mathrm{feasible} \gets \{\, x \in \mathrm{flip} : x \text{ agrees with } x_f \text{ on every } u \in U_{\mathrm{imm}} \,\}$
+\If{$\mathrm{feasible} = \emptyset$} \State \Return $\varnothing$, \textit{``no\_feasible''} \EndIf
+\For{$x \in \mathrm{feasible}$}
+  \State $\ell_0(x) \gets$ number of feature units differing from $x_f$ (group-aware)
+  \State $\ell_2(x) \gets \|x - x_f\|_2$
+\EndFor
+\State $x_{\mathrm{cf}} \gets \operatorname*{arg\,min}_{x \in \mathrm{feasible}} \mathrm{lexicographic}\big(\ell_0(x), \ell_2(x), |p(x) - \tau|\big)$
+\State \Return $x_{\mathrm{cf}}$, \textit{``ok''}
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Putting It Together}\label{sec:pace_overview}
+
+\revitem{M8}{R2}{\textbf{Add a pipeline flow diagram}: inputs $\to$ Stage A
+(importance + pools) $\to$ Stage B (three generators) $\to$ range filter $\to$
+dedup/score/lexicographic select $\to$ CE or $\varnothing$. Anchors the whole section
+and answers R2's readability request directly.}
+
+\revitem{M6b}{internal consistency}{\textbf{Text/code mismatch, fix here.} The
+paragraph below says the auxiliary model ``can coincide with the target'' for fast
+predictors and a surrogate is used ``for expensive predictors, such as TabPFN''.
+The benchmark actually sets \texttt{pp\_guidance = proba\_fn(models["LR"])} for
+\emph{every} target, so LR guides generation even when the target is LR/RF/XGB
+(cf.\ Section~\ref{sec:exp}, which does state this). Describe what was run, then
+note the coincide-with-target case as an option, not the default.}
+
+\revitem{M5}{R1, R3, ED}{\textbf{One short paragraph per mechanism} answering
+\emph{what regime is it for, and what does removing it cost?} --- anchors: already on
+the desired side, cheap and sparse; boundary: diffuse/complex boundaries where few
+training points cross; noise: reaches feasible regions no training point covers.
+Fig.~\ref{fig:proposal_types} already supports this descriptively (anchors dominate
+generally; boundary dominates on Blood Transfusion/HELOC; noise non-negligible for
+XGB) --- cite it here. A1 then turns this into a causal justification.}
+
+\revitem{M4}{R1, R3}{\textbf{Every symbol below must be defined in prose first.}
+Confirmed gaps: (a) $\pi_a,\pi_b,\pi_n$ --- used here and on p.6, values only in
+Table~\ref{tab:pace_hyperparams}; (b) $\alpha$ and $[\alpha_{\min},\alpha_{\max}]$ ---
+Table~\ref{tab:pace_hyperparams} gives $\mathrm{Unif}[0.5,1.0]$ but the prose never
+says what $\alpha$ \emph{is}; define ``interpolation'' and ``constrained
+interpolation'' (R1 and R3 both flag this); (c) $\gamma$ --- appears in
+$w(u)\propto I(u)^{\gamma}$ with no value in Table~\ref{tab:pace_hyperparams} and no
+definition; add both; (d) $c$ vs.\ $\sigma_{\mathrm{base}}$ --- Table~1 lists
+$\sigma_{\mathrm{base}}=0.25$, the $\sigma$ formula below uses $c$; reconcile or
+rename. Also define at first use: feature units, one-hot groups, immutable sets,
+proposal pools, importance weights, clipping to training quantiles, $\tau$, $k_A$,
+$k_B$, $R$, $M$, $s$, $p_{\mathrm{ch}}$.}
+
+Algorithm~\ref{alg:pace_overview} composes algorithms~\ref{alg:stageA_importance},~\ref{alg:stageA_pools},~\ref{alg:stageB_candidates} and~\ref{alg:stageC_select}  into the complete PACE pipeline. 
+As we saw throughout this Section, PACE, by construction, exposes a rich set of control parameters that allow one to
+tailor CE generation to domain experts and stakeholder specific requirements.
+These include constraints on the maximum number of features allowed to change,
+the specification of immutable attributes, the handling of categorical
+variables, admissible ranges and feasibility levels for continuous features, and
+the magnitude of stochastic perturbations. 
+Contrary to existing generative CE methods, PACE instead exposes feasibility as 
+an input via a range of constraints and immutability flags, 
+treating plausibility as a stakeholder specification rather than a learned property. Although the imposition of hard
+constraints may result in failure to find a feasible counterfactual in some
+cases (cf.\ Section~\ref{sec:tradeoff}), we argue that the resulting
+formulation is well aligned with the nature of realistic recourse in
+high-dimensional, mixed-type tabular domains, where explanations must satisfy
+discrete actionability requirements and sparsity limits.
+In addition, PACE allows explicit
+control over the relative proportions of anchor, boundary, and
+noise produced proposals, the lexicographic priority ordering used for
+candidate selection, and the number of CE to be returned. 
+It is straightforward and computationally cheap to produce $k>1$ CE using PACE, via selecting the top$-k$ feasible candidates after lexicographic ordering. 
+\revnote{M7 (R3)}{Algorithm~\ref{alg:stageC_select} returns a single $\arg\min$, but ``number
+of CE to be returned'' is listed as a control --- R3 noticed. State that PACE returns
+the top-$k$ feasible candidates under the lexicographic order, and either show a
+small $k>1$ example or say it is straightforward and defer.} The computational
+budget can also be treated as a hyperparameter, through the number of candidates
+generated. If the number of candidates increases then the likelihood of
+obtaining a pragmatic CE also increases\footnote{This only applies for
+relatively balanced datasets, see further discussion for imbalanced datasets in
+Section~\ref{sec:discussion}}.
