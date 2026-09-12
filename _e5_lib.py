@@ -696,6 +696,11 @@ def run_benchmark(
                     "changed_idx": changed_idx_show,
                 }
 
+                if include_vectors:
+                    row["x_f"] = _maybe_trunc(x_f)
+                    row["x_cf"] = _maybe_trunc(x_cf) if ok else None
+                    row["diff"] = _maybe_trunc(diff) if ok else None
+
                 print(f"  [{model_name}/{method}] idx={idx} status={row['status']!r} "
                       f"ok={row['ok']} l0={row['l0']} l2={row['l2']:.4f} "
                       f"time_s={row['time_s']:.2f}", flush=True)
