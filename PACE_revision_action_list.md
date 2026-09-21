@@ -97,7 +97,10 @@ Ensure every reference has a DOI **or** a working link. [CODE] optional: script 
 
 ## Workstream 3 — Experimental protocol (Section 4)
 
-**E1 [TEXT] — Position MOC in related work, and justify not benchmarking it. DECISION: not running it.** (R2, R3, ED)
+**E1 [TEXT] — Position MOC in related work, and justify not benchmarking it. DECISION: not running it. PASTED INTO MANUSCRIPT.** (R2, R3, ED)
+
+**Status: pasted into `pace.tex`'s `sec:calls` subsection** (real bib key `dandl2020multi`, real labels — see `REVISION_EVIDENCE_LOG.md`'s E1b entry for the exact edit). `draft_E1_moc_scaling_subsection.md` is superseded for the manuscript text but still holds a condensed rebuttal-letter paragraph for R2/R3 that hasn't been pasted anywhere (no rebuttal-letter file in this repo). **Remaining:** R1w (MOC's Related Work positioning) is still an open `\revitem` in `pace.tex` — this subsection assumes R1w exists but doesn't duplicate it; re-check for overlap once R1w is drafted.
+
 Parse of the actual asks: **R3 and the editor require MOC/multi-objective methods to be *discussed as related work* (hard, cheap — done in R1w/R2w).** The *empirical comparison* is only a **suggestion** — R2 says "I miss a comparison… other than that the evaluation is sufficient"; the editor says it "could be compared." "Could…should also be discussed" is permissive on the comparison, mandatory on the discussion. So declining the benchmark is defensible **provided the discussion is thorough and the scaling argument is quantified** (E1b).
 Chosen path and rationale to state in the response letter:
 - Off-the-shelf MOC availability is messy for a Python/TabPFN pipeline (reference impl is R `counterfactuals`/`MOCClassif`; no clean drop-in), so a faithful, fair integration is disproportionate effort for a method the paper already argues is architecturally mismatched to expensive predictors.
@@ -105,8 +108,12 @@ Chosen path and rationale to state in the response letter:
 - Replace the missing MOC run with the **scaling analysis in E1b**, which turns "it won't scale" from an assertion into a quantified argument.
 *No code for this item* beyond making the existing DiCE-genetic (synthetic) results visible; the substance is text (R1w/R2w) + E1b.
 
-**E1b [CODE/TEXT] — Scaling analysis: quantify why population-based evolutionary CF is mismatched to expensive predictors.** (replaces the MOC benchmark; supports R2, ED)
+**E1b [CODE/TEXT] — Scaling analysis: quantify why population-based evolutionary CF is mismatched to expensive predictors. CODE COMPLETE, TEXT drafted in evidence log, not yet in manuscript.** (replaces the MOC benchmark; supports R2, ED)
 This is the evidence that lets you decline the MOC run without hand-waving. The goal: show, in target-model *call counts* (not just wall-clock, which is hardware-dependent), that a population-based evolutionary search is architecturally expensive under in-context predictors like TabPFN, whereas PACE's cost is a single batched pass.
+
+**Status: done, see `REVISION_EVIDENCE_LOG.md`'s "E1b — Scaling analysis" section; this entry is the pointer.** Summary: pure analysis on E4's already-collected data (`e1b_scaling_analysis.py`, no new run) — E4's DiCE-genetic-on-synthetic rows are the empirical anchor the spec asked for (dice_ml's own defaults: exactly 16 generations × ~51 population, deterministic across all 60 checked combinations), MOC's published defaults (20×176=3,520 calls/CE) are latency-calibrated against DiCE-genetic's own measured per-call TabPFN cost (0.322s/call, same algorithm family/hardware). Headline: PACE measured 1.07s/CE (2 calls) vs. MOC projected ≈18.9 min/CE (3,520 calls) under TabPFN — **~1,064× slower, projected**. Also grounds "batching is the lever" in the actual numbers: PACE's batched Stage C call scores ~2,000 candidates for about the same per-call TabPFN cost as DiCE-genetic's 51-row batches (~0.53s/call vs. 0.322s/call) — the EA's problem isn't expensive individual queries, it's needing 3,520 of them *sequentially*. Outputs: `e1b_scaling_table.csv`, `e1b_calls_per_ce_bar.pdf` (log-scale grouped bar, MOC's bars hatched to mark them as projected, not measured). **Pasted into `pace.tex`'s `sec:calls` subsection** (`tab:moc_scaling`, plus the `diabetes_binarized` catastrophic-tail datapoint), replacing that section's `\revitem{E1, E1b}` note — see `REVISION_EVIDENCE_LOG.md`'s E1b entry for the exact edit.
+
+*Original spec (for reference):*
 *Spec (CODE):*
 - **Call-count model.** For a population-based EA (NSGA-II/MIES as in MOC): forward evaluations per instance ≈ `population_size × n_generations` (plus initialisation), each a separate target-model query. Using MOC's published defaults (population ≈ 20, generations ≈ 175) that is ≈ 3,500 target calls **per counterfactual**. For PACE: `M` candidates (default 2,000) scored in `⌈M / batch_size⌉` **batched** forward passes — reuse the actual counts from E4. Tabulate both as *target-model evaluations per CE* and *number of forward passes per CE*.
 - **Latency projection.** Multiply the call counts by your measured TabPFN per-call (or per-batch) latency from E4 to project per-CE wall-clock for the EA under TabPFN, and contrast with PACE's measured value. Make explicit that batching is the lever: PACE amortises 2,000 candidates into a handful of passes; an iterative EA cannot, because each generation depends on the last.
@@ -116,7 +123,7 @@ This is the evidence that lets you decline the MOC run without hand-waving. The 
 - State the honest scope: this is an *analytical/call-count* argument, not a head-to-head MOC benchmark, and say why (implementation availability + architectural mismatch). Pre-empting the objection in the text is what makes declining the run defensible.
 - Tie back to the paper's thesis: this is the mechanism behind PACE's stable TabPFN runtimes, so the scaling analysis does double duty as support for the core claim.
 
-**E2 [CODE] — Uniform completeness & reliability reporting for all methods.** (R3, ED)
+**E2 [CODE] — Uniform completeness & reliability reporting for all methods. DONE for real data.** (R3, ED)
 **Why the reviewer flags this (the asymmetry in the current paper).** You already have a rigorous reliability treatment — but *only for PACE*: the `no_flip` (691, 3.5%) / `no_output` (520, 2.6%) taxonomy, Table 4's per-dataset/classifier failure breakdown, Appendix B. The baselines get none of it — just scattered prose ("NICE-sparse … absent from those comparisons," "DiCE is more likely to fail") with **no counts and dropped cells**. Two distinct problems result:
 1. **Asymmetric granularity (labels):** the failure vocabulary built for PACE is never applied to DiCE/NICE/MCCE, so a reader sees *that* a baseline is missing but not *why* (timeout? no output? malformed CF? not run?).
 2. **Non-common denominator (deeper, not just labels):** when a baseline is "absent" because it didn't terminate, those instances appear to be *dropped* from its completeness rather than counted against it. That scores baselines on an easier subset while PACE is scored over everything including its own failures — so the completeness numbers aren't comparable. This is the "single common denominator" in the fuller comment.
@@ -130,6 +137,10 @@ You've done the hard conceptual work already; this is **extending your existing 
 - Output a tidy CSV that every figure reads from, so completeness/reliability are guaranteed consistent across the paper.
 *Cross-refs:* the common budget that makes `timeout` well-defined is the wall-clock cap in E3; the cost asymmetry that *explains* differing outcomes is the call-count table in E4. Report those alongside so differing completeness is shown to be a *result*, not an uncontrolled confound.
 
+*Reviewer's exact wording (obtained this session, not previously in this repo verbatim):* "The empirical evaluation is useful but not sufficient to validate the proposed methodology. The comparison with baselines is difficult to interpret because failures, timeouts, omitted configurations, no-output cases, and no-flip cases are not handled under a single common denominator with identical budgets. Completeness and reliability should be reported uniformly for all methods." No standalone reviewer letter exists in this repo (searched, not found) — this is the only verbatim text available beyond the short quoted fragments already in this file.
+
+*Implemented for real data* (`cfprop_plots.ipynb` sections "2b"/"2c"): found `nice_spars` was missing 1500 rows entirely (the 3 combos originally believed to genuinely hang), silently scoring it on an easier 7/10-dataset subset on that cell — added them back as explicit `not_run` rows directly into `output_realdata.joblib` first (backed up), giving a corrected-but-still-provisional 54.1%. **Then actually re-ran all 3** under the real 120s-per-instance protocol (not the looser diagnostics that produced the original "hang" verdict) — none are genuine hangs: `australian` 15.0%, `blood_transfusion` 55.0%, `chronic_kidney_disease` 52.2%. Replaced the stubs with this real data; `nice_spars`/TabPFN completeness is now **66.6%**. Mapped every method's existing status column onto the shared `{success, no_flip, no_output, invalid, timeout, not_run}` vocabulary (a real judgment call for `violates_immutable`→`invalid` and `dice_invalid_config`/`no_cf`→`no_output`, documented in the evidence log — `l0`/`l2` are null for every failure category across every method, so the raw data alone can't disambiguate the mapping). Built the common-denominator completeness table and the reliability table (method × classifier, baseline-analogue of Table 4), both exported as tidy CSVs, plus a new stacked-bar figure visualizing the full outcome breakdown per (model, method) rather than just the binary success rate. Two more bugs found and fixed along the way: the Timing figure was unfiltered by status (timeout rows pinned at exactly 120s were plotted as real runtimes, and `nice_spars`/TabPFN's whole box was silently invalidated by `NaN` `not_run` rows — `matplotlib.boxplot` drops the entire box, not just the bad entries); and `nice_base` was missing from the completeness figure specifically (it's correctly excluded from the $\ell_0$/$\ell_2$ quality comparisons, but that exclusion had leaked into the completeness panel too, where it shouldn't apply). Full derivation, exact numbers, and the mapping rationale: `REVISION_EVIDENCE_LOG.md` → "E2". **Not yet done:** the reliability table and the new stacked figure as actual manuscript figures/tables (CSVs/PDFs exist, not placed in the body yet); the mock/synthetic-data equivalent (only real data addressed this pass).
+
 **E3 [CODE/TEXT] — Common budget: wall-clock cap, not an identical algorithmic budget.** (R3)
 Don't over-promise here. A single *identical algorithmic* budget is not well-defined across these methods — PACE's budget is a candidate count M, DiCE-genetic's is population × generations, NICE has no comparable iteration knob, MCCE samples-then-filters. Forcing one common knob would be misleading, not rigorous. You can decline that on principled grounds *in the text*.
 *Spec (CODE):*
@@ -137,9 +148,12 @@ Don't over-promise here. A single *identical algorithmic* budget is not well-def
 - Report **target-model call counts** per method (E4) alongside, since that is the hardware-independent cost measure and explains *why* budgets differ (DiCE issues thousands of sequential calls; PACE a handful of batched ones).
 *Spec (TEXT):* one or two sentences: "a single identical algorithmic budget is ill-defined across methods with heterogeneous search procedures; we instead impose a common wall-clock budget and report per-method model-call counts, making the cost asymmetry explicit rather than hidden." This converts the reviewer's budget objection into a demonstration of the paper's motivation (existing methods are brittle/expensive under expensive predictors), rather than a comparison you can't run. Keep the honest caveat (already in your text) that wall-clock depends on available compute.
 
-**E4 [CODE] — Instrument TabPFN cost to demonstrate (not assert) the efficiency mechanism. (Mechanism VERIFIED from code.)** (R3)
+**E4 [CODE] — Instrument TabPFN cost to demonstrate (not assert) the efficiency mechanism. COMPLETE.** (R3)
 The manuscript asserts batched scoring explains the speedup; `core.py` confirms *exactly* how, so you can now demonstrate it. **Verified per-factual target-model accounting for PACE:** `p_f` = 1 singleton call; Stage C = **1 batched `predict_proba` over the whole (deduped) candidate pool** (`stageC_select_best` scores `C` in a single call); Stage A/B run on the LR guidance model, so cache building makes **zero** target calls and happens once per model. Net: **2 target-model invocations per factual, one of them a single batched pass over ~n_candidates rows.** Baselines call the target iteratively throughout their search.
-*Spec (CODE):*
+
+**Status: done, see `REVISION_EVIDENCE_LOG.md`'s "E4 — TabPFN cost instrumentation" section for full detail; this entry is the pointer.** Summary: built `_e4_lib.py` (a `predict_proba`-monkeypatching call counter, verified safe against DiCE/NICE/MCCE's actual call sites, plus the `guided_cf_build_cache`/`guided_cf_one_repeated` PACE call path — which turned out to be missing from `_e5_lib.py` entirely, never extracted from the notebook) and `run_benchmark_instrumented`, validated on two pilots (`e4_pilot_test.py`, `e4_dryrun_test.py`) before a full GPU run (`e4_tabpfn_cost_instrumentation.py`/`.sbatch`, job 310026, 18min) across 4 datasets (the synthetic d=80 set for a DiCE-**genetic** anchor feeding E1b, plus breast_cancer/credit-g/heloc) × 4 classifiers × 5 methods × 15 factuals (`e4_tabpfn_cost.joblib`, 1185 rows). Confirmed exactly: PACE = 2 target calls/CE for RF/XGB/TabPFN (3 for LR-as-target, a real edge case — PACE's guidance model is always LR, so target==guidance calls become indistinguishable from target calls when LR is the target itself), invariant across every dataset/factual; NICE-sparse and DiCE are the call-hungry, variable ones (7–48 calls/CE). Added the honesty-check finding the spec asked for: Spearman(calls, runtime) is strong and positive for TabPFN (ρ=0.65) and RF (ρ=0.60) — matching the paper's causal claim — but *negative* for LR/XGB (ρ=−0.20/−0.30), so the batched-single-pass mechanism explains PACE's speed specifically under expensive predictors, not universally; stated as such rather than only citing the supportive numbers. Outputs: `tabpfn_cost.csv`/`tabpfn_cost_overall.csv`, `e4_runtime_vs_calls.pdf` (log-log, one panel per classifier). **Pasted into `pace.tex`'s `sec:calls` subsection** (`tab:calls_e4`, `fig:runtime-vs-calls`), replacing that section's `\revitem{E4}` note — see `REVISION_EVIDENCE_LOG.md`'s E4 entry for the exact edit and the two incidentally-fixed dangling `\ref{sec:efficiency}` citations elsewhere in the document.
+
+*Original spec (for reference):*
 - Wrap the target's `predict`/`predict_proba` (and TabPFN's forward) in a counter/decorator. Log, per method × dataset × classifier: **target-model row-evaluations**, **number of forward passes/batches**, candidate count (before/after dedup), batch size, and (PACE only) the one-off LR guidance fit + Stage-A importance cost.
 - Tabulate **target calls per CE** across methods (`tabpfn_cost.csv`). Expected contrast: PACE ≈ 2 passes/CE; iterative baselines = many.
 - **Add the demonstration plot (this is what answers "rigorously demonstrate"):** runtime vs target-call-count, one panel per classifier, all methods. Show the points fall on a rising line and PACE sits at the cheap end — the *correlation* is the proof that runtime is governed by call count, not a coincidence. Tabulating counts alone is necessary but not sufficient; the plot is the causal argument.
@@ -185,40 +199,86 @@ You already state ℓ2 is in z-normalised + one-hot space and "dimensionless / a
 
 ---
 
-## Workstream 4 — Statistical analysis (rework)
+## Workstream 4 — Statistical analysis (rework) — **STATUS: S1–S5 CODE done, S5 TEXT drafted, not yet pasted into manuscript**
 
 R3 and ED: tests are "too strong for the evidence," many matched comparisons have small counts, and there is no correction or handling of dependence across datasets/seeds/factuals. Treat this as a redo, not a patch.
 
-**S1 [CODE] — Make the dataset the primary unit of replication.** (R3, ED)
+**S1 [CODE] — Make the dataset the primary unit of replication. DONE, but see deviation below.** (R3, ED)
 Seeds and factuals within a dataset are *not* independent, so per-instance Wilcoxon over pooled pairs overstates power.
 *Spec (primary analysis):* for each (classifier, baseline, ℓ0 stratum), compute a **per-dataset** summary (median Δℓ2 across that dataset's matched pairs), then run a Wilcoxon signed-rank / sign test across the **≤10 datasets**. Report this as the headline. Demote the per-instance tests to descriptive support. This respects the hierarchy R3 is asking for.
 
-**S2 [CODE] — Multiple-comparison correction.** (R3, ED)
+*Implemented as specified* (`dataset_level_wilcoxon`, `cfprop_plots.ipynb` section 3c) — but on the real data it finds **0/67 significant cells** after correction (S2): collapsing to ≤10 dataset medians respects independence but leaves too little power to say anything. **Deviation:** added a hierarchical mixed-effects alternative (`hierarchical_l2_test`/`combine_hierarchical_results`, section 3c′) that fits `Δℓ2 ~ 1 + (1|dataset)` on every matched instance instead of 10 medians, with significance from a dataset-level cluster bootstrap rather than the mixed model's own (few-cluster-unreliable) p-value. Finds **39/67** significant under the identical correction. Recommend this becomes the headline test, with S1 kept as the sensitivity check that motivates why the hierarchical approach is needed. Full derivation, a real bug found and fixed while verifying it (mixed-model point estimate can be unstable in small/unbalanced clusters — fixed by always reporting the plain pooled mean), and per-baseline results: `REVISION_EVIDENCE_LOG.md` → "Workstream 4 — Hierarchical mixed-effects test (S1 extension)".
+
+**S2 [CODE] — Multiple-comparison correction. DONE.** (R3, ED)
 *Spec:* define the test family explicitly (all reported comparisons across baseline × classifier × ℓ0). Apply **Holm–Bonferroni** (family-wise) or **Benjamini–Hochberg** (FDR) to the p-values in Table A3 and in the Section 4/6 claims. Add adjusted p-values (`p_adj`) as a column; base all "statistically significant" language on `p_adj`.
 
-**S3 [CODE] — Report effect sizes, not just p-values.** (R3)
+*Implemented as specified* (`holm_bonferroni`, applied identically in both the S1 dataset-level test and the hierarchical extension above, same family definition).
+
+**S3 [CODE] — Report effect sizes, not just p-values. DONE.** (R3)
 *Spec:* alongside each Wilcoxon, report the **matched-pairs rank-biserial correlation** (or median Δℓ2 with its bootstrap CI, which you already have). This lets you claim *practical* superiority even where you soften *statistical* claims.
 
-**S4 [CODE/TEXT] — Suppress or gray out under-powered cells.** (R3)
+*Implemented as specified* (`rank_biserial_r` on S1's dataset medians). Given S1's power problem, the hierarchical test's `mean_delta_l2` + cluster-bootstrap CI (per-cell, always valid regardless of model convergence — see S1 deviation) is now the more informative effect-size statistic and is what `draft_S5_significance_rewrite.md` leads with; worth deciding whether it formally supersedes rank-biserial-on-S1 or the two are reported together.
+
+**S4 [CODE/TEXT] — Suppress or gray out under-powered cells. DONE.** (R3)
 You already outline n<30 dots; go further: set a minimum-n threshold for any *significance* claim, and in the text stop asserting superiority from cells with tiny n (e.g., the TabPFN-MCCE comparison you note has matches at ℓ0<5 in only 1 dataset — state that as inconclusive, not a loss/win).
 
-**S5 [TEXT] — Rewrite the significance sentences in Sections 4, 5, 6.** (R3, ED)
+*Implemented*: `plot_dataset_level_forest`'s hollow-diamond marker for `k_datasets` below a threshold (S1); the hierarchical test carries the same `k_datasets` column and an explicit `lmm_unstable` flag for cells where the mixed-model diagnostic itself is unreliable. `draft_S5_significance_rewrite.md`'s MCCE paragraph explicitly reports the low-k cells as inconclusive rather than a loss, per spec.
+
+**S5 [TEXT] — Rewrite the significance sentences in Sections 4, 5, 6. DRAFTED, not yet pasted into manuscript source (not checked out in this repo).** (R3, ED)
 Replace strong claims ("statistically significantly closer... Pareto dominates") with the corrected, dataset-level results: report where significance survives correction, where it does not, and lead with effect sizes + Pareto dominance rates (which are descriptive and robust).
+
+*Drafted in* `draft_S5_significance_rewrite.md`, grounded in the hierarchical test's real numbers (not the underpowered S1 test): strong/consistent vs. DiCE (21/23 cells), a genuine sparsity-dependent crossover vs. NICE-sparse (13/32, PACE wins at ℓ0=1, NICE-sparse wins at ℓ0≥6), inconclusive vs. MCCE (5/21, confounded by MCCE rarely matching PACE's ℓ0 exactly) — plus Pareto dominance rates (92.3%/96.6%/75.8% vs. DiCE/MCCE/NICE-sparse) as the robust descriptive backstop per spec.
 
 ---
 
-## Workstream 5 — Ablation studies
+## Workstream 5 — Ablation studies — **STATUS: COMPLETE**
 
 R1 and R3 both require ablations; ED asks for per-component benefit. Keep compute tractable by running on a **representative subset** (e.g., 4–5 datasets spanning continuous-only, mixed, and the hard Breast Cancer case) × the 4 classifiers, fixed seeds.
 
-**A1 [CODE] — Proposal-mechanism ablation (the key one).** (R1, R3, ED)
-*Spec:*
+All three items below are done: code run (full SLURM jobs, not pilots), results verified line-by-line against the raw data (two real transcription errors were caught and fixed this way — see A1's status note), and LaTeX write-ups drafted for Sections "Proposal-mechanism ablation," "Hyperparameter ablation," and "Are the defaults justified?" (not yet pasted into the manuscript source, which isn't checked out in this repo). Full detail belongs in `REVISION_EVIDENCE_LOG.md`; this entry is the pointer.
+
+**A1 [CODE] — Proposal-mechanism ablation (the key one). COMPLETE.** (R1, R3, ED)
+*Original spec:*
 - **Leave-one-out:** three configs, each zeroing one of π_a/π_b/π_n and renormalising the other two. Report Δcompleteness, Δℓ0, Δℓ2 vs the full method.
 - **Mixture sweep:** a coarse simplex over (π_a, π_b, π_n) (e.g., grid on {0, 0.25, 0.5, 0.75, 1.0} with sum 1). Report the response surface / a small table.
 Expected: this is what turns Fig. 9's descriptive breakdown into a *causal* justification for keeping all three. Tie back to M5.
 
-**A2 [CODE] — Hyperparameter ablations.** (R1, R3)
-*Spec:* one-at-a-time sweeps around the Table 1 defaults, reporting completeness/ℓ0/ℓ2/runtime:
+*What was actually run (deliberately not adhering to the spec above where the
+data called for something sharper — the leave-one-out/mixture-sweep table on
+its own turned out to be the less informative half of the analysis):* full
+cross over 4 classifiers × **6 datasets** × 3 seeds × 30 factuals × 19 configs
+(baseline + 3 leave-one-out + 15 mixture-grid points) = 41,040 rows
+(`a1_mixture_ablation.joblib`). Datasets: `australian`, `blood_transfusion`,
+`breast_cancer`, `credit-g` (initial run), plus `heloc` and a synthetic
+`d=80` set (`mc_f80_red40_inf24_seed787359109`, reproduced from
+`completness.ipynb`'s exact `generate_make_classification_suite` call) added
+as a targeted follow-up once the initial 4-dataset run showed the
+mechanism-importance signal was ~87% concentrated in `breast_cancer` alone —
+a real generalizability gap. Beyond leave-one-out Δcompleteness/Δℓ0/Δℓ2, the
+analysis added two decisive metrics the original spec didn't ask for:
+**candidate yield** (% of the M candidates that actually flip — isolates
+efficiency from completeness, since Stage C's single batched call means
+removing a mechanism costs zero runtime but a real, consistently-signed
+yield penalty for anchor specifically) and **essential-instance counts**
+(which mechanism was the *sole* route for a given factual — a finer,
+survivorship-bias-free signal than the per-cell completeness spread).
+Key results: anchor is essential for 145/2160 instances (6.7%) across three
+regimes; boundary and noise are each essential for ~2% (46, 44
+respectively), an order of magnitude rarer but not negligible, concentrated
+almost entirely in the high-dimensional donor-sparse synthetic set (comparable
+to anchor's own share there) — direct, generalizing evidence for their design
+rationale (M5), not a single-dataset artifact. Code: `_a1a2_lib.py`,
+`a1_proposal_mechanism_ablation.py`/`.sbatch`,
+`a1_extra_datasets_ablation.py`/`.sbatch`. Analysis: `ablation_analysis.ipynb`.
+Figures: `a1_yield_penalty_figure.pdf` (paper-ready, color-matched to
+`cfprop_plots.ipynb`'s `PROPOSAL_COLORS`), `a1_essential_instances_by_dataset.pdf`,
+`a1_mixture_response_surface.pdf`, `a1_pure_mechanism_comparison.pdf`.
+One additive method-code change: `stageC_select_best` in
+`pfn_cf_guided_onehot.py` gained an `order` parameter (default reproduces
+prior behaviour exactly) to support A2's lexicographic-order sweep.
+
+**A2 [CODE] — Hyperparameter ablations. COMPLETE.** (R1, R3)
+*Original spec:* one-at-a-time sweeps around the Table 1 defaults, reporting completeness/ℓ0/ℓ2/runtime:
 - candidate budget **M** ∈ {500, 1000, 2000, 5000, 10000};
 - max changed units **s** ∈ {2, 4, 8, 16};
 - base noise **σ_base** ∈ {0.1, 0.25, 0.5, 1.0};
@@ -228,27 +288,102 @@ Expected: this is what turns Fig. 9's descriptive breakdown into a *causal* just
 - **lexicographic order** {ℓ0→ℓ2 vs ℓ2→ℓ0}.
 Reuse the Section 5 relaxation harness — it already sweeps M, s, σ, α, so much of this exists; extend to γ, surrogate, and ordering, and report on more than the single Breast-Cancer/TabPFN cell.
 
-**A3 [TEXT] — Ablation write-up + one summary figure/table.** (R1, R3, ED)
+*What was run:* exactly the 7 axes above (24 configs total, each axis
+including its own default point), on 2 cells — `breast_cancer`/TabPFN (the
+hard cell, where every axis has real headroom) and `credit-g`/RF (an easy,
+near-ceiling cell used as a robustness check) — × 3 seeds × 30 factuals
+(`a2_hyperparameter_ablation.joblib`, 4,320 rows). **Correctness fix applied
+mid-run:** the first pass gave `lex_order`'s two conditions independent
+random seeds, so their candidate pools differed and a spurious completeness
+delta appeared (an artifact, since re-ranking an already-fixed pool cannot
+change whether a flip exists at all); fixed by sharing the seed across both
+orders and rerun (old result kept as
+`a2_hyperparameter_ablation.joblib.pre_lexorder_fix` for reference — do not
+cite it). Key results: `s` is the dominant, cheap lever (14.4%→100%
+completeness, +8% runtime for the last step); `M` is a real but far more
+costly lever (+35.6 points completeness, +374% runtime) — `s` is ~44× more
+efficient than `M` per unit runtime; the other four axes move completeness
+by ≤5 points around the default (the Table 1 defaults are not fragile);
+`α_min` widening *hurts* completeness, counter to the naive expectation;
+guidance-surrogate choice (LR vs. RF vs. no importance guidance) is
+essentially free, supporting M6/E4's "cheap surrogate suffices" framing.
+Code: `a2_hyperparameter_ablation.py`/`.sbatch` (shares `_a1a2_lib.py` with
+A1). Analysis: `ablation_analysis.ipynb`.
+
+**A3 [TEXT] — Ablation write-up + one summary figure/table. COMPLETE (as two focused tables, not one merged one).** (R1, R3, ED)
 Summarise A1/A2 in one table (deltas vs default) and 1–2 sentences per parameter on *why* the default is chosen. This also pre-empts R3's "heuristic choices may drive the results" concern.
+
+*Deviation from spec:* a single merged table read worse than two
+purpose-built ones (A1's essential-instance-by-dataset table; A2's per-axis
+effect-size table, both above) plus a short closing synthesis paragraph
+("Are the defaults justified?" — drafted, not yet in the manuscript source).
+The underlying combined tidy table the spec asked for still exists as
+`ablation_summary_a1a2.csv` (97 rows: A1 leave-one-out deltas + A2 per-axis
+deltas) for anyone who wants to build a different summary view from it.
 
 ---
 
-## Workstream 6 — Figures
+## Workstream 6 — Figures — **STATUS: COMPLETE**
 
-**F1 [FIG] — Enlarge the ℓ0–ℓ2 panels of Fig. 2 and Fig. 5.** (R3)
-Split each into its own full-width figure, or a 2×2 (per classifier). Current right panels are too small to read.
+All five items regenerated against the current E5b/E2-corrected data and pasted
+into `pace.tex`, with the corresponding `\revnote`s marked RESOLVED. No new
+benchmark run — pure notebook plotting-code changes (`cfprop_plots.ipynb`,
+re-executed via `jupyter nbconvert --execute --inplace`). Full detail,
+including a real completeness-undercount bug found and fixed while
+regenerating F1, and a downstream E5b/E5 text correction (DiCE's "marked
+drop" under TabPFN no longer holds post-fix) that had to be corrected as a
+necessary consequence: `REVISION_EVIDENCE_LOG.md` → "Workstream 6 — Figures".
 
-**F2 [FIG] — Fix Fig. 3 row labels.** (R3)
-Text says "each baseline is compared" but every y-axis row reads `nice_spars`. Either relabel rows to the actual baselines compared or correct the caption/text to say only NICE(sparse) had matched pairs at fixed ℓ0 in the synthetic setting (which the body text implies). Make figure and text consistent.
+**F1 [FIG] — Enlarge the ℓ0–ℓ2 panels of Fig. 2 and Fig. 5. DONE.** (R3)
+Split each into a compact flip-rate-bar figure plus a full-width 2×2 (one
+subplot per classifier) ℓ0–ℓ2 scatter (`{mock,real}_l0_l2_by_model.pdf`).
+Regenerating against corrected data surfaced a real bug: completeness was
+computed from raw `flip_ok`, whose `.mean()` silently drops ~3,800 NaN rows
+from the E2 nice_spars un-skip merge instead of counting them as successes
+(undercounting e.g. `nice_spars`/TabPFN as 72.5% instead of the correct
+76.6%). Fixed by backfilling only the missing values from `status`, since
+`status=="ok"` and `flip_ok==1` are not fully interchangeable (61 `pace`/TabPFN
+rows are a real counterexample). This also flipped which baseline shows "the
+largest drop" under TabPFN in the real-data prose (now NICE(sparse), not
+DiCE) — corrected in `pace.tex` alongside the figure.
 
-**F3 [FIG] — Redesign Fig. 6.** (R3)
-*Spec:* **ℓ0 on the x-axis**, **Δℓ2 on the y-axis**, **four subplots (one per classifier)**. Do not encode "ℓ0<5" only by colour when it isn't an axis — R3 specifically objects that you can't conclude "ℓ0<5" from a plot without ℓ0 as an axis. Keep dot-area ∝ n and gray-out n<30.
+**F2 [FIG] — Fix Fig. 3 row labels. DONE.** (R3)
+Regenerated using the same ℓ0-on-x-axis, per-classifier design built for F3
+(`mock_l0_vs_l2diff_by_model.pdf`) rather than relabelling rows in a design
+that had nothing to relabel — only NICE(sparse) ever has a matched-ℓ0 cell in
+the synthetic setting, confirmed via the hierarchical test (0 testable cells
+for DiCE/MCCE/NICE(base)), so only its points appear and the caption states
+why the other three don't, rather than the figure implying they were compared
+and simply absent.
 
-**F4 [FIG] — Redesign Fig. 7.** (R3)
-*Spec:* too many overlapping points. Make **one panel per dataset** (small multiples); if space-limited, keep a representative subset in the main text and move the rest to the appendix. Alternative R3 offers: a sparsity-vs-proximity scatter for all methods across datasets — consider adding that as the intuition figure.
+**F3 [FIG] — Redesign Fig. 6. DONE (code existed from the S1 rework; this
+pass regenerated it against current data and pasted it into the manuscript).** (R3)
+`plot_l0_vs_l2diff_by_model` (ℓ0 on x-axis, Δℓ2 on y-axis, 4 subplots, dot-area
+∝ k_datasets, k_datasets<3 hollow/grey) had already been built in the notebook
+but the output predated the E5b/E2 merges and had never actually been pasted
+into `pace.tex` (which still pointed at the old aggregated figure). Regenerated
+and swapped in.
 
-**F5 [TEXT/FIG] — General polish.** (ED)
-Consistent axis labels/units, readable font sizes, colour-blind-safe palette, and captions that state the takeaway. Ensure ℓ0/ℓ2 subscripts render (several appear broken in the current PDF text layer).
+**F4 [FIG] — Redesign Fig. 7. DONE.** (R3)
+New `plot_pareto_dominance_small_multiples`: one panel per dataset (the
+original design needed one marker shape per dataset but had only 8 shapes for
+10 datasets — `ilpd`/`australian` and `sick`/`blood_transfusion` silently
+shared a marker, confirmed in code, compounding the overlap R3 flagged). Main
+text keeps a representative 4-dataset subset (breast_cancer, credit-g,
+diabetes_binarized, heloc — chosen to span the cases the prose discusses);
+full 10-dataset grid moved to a new appendix figure. R3's optional
+sparsity-vs-proximity intuition-scatter suggestion was not added — flagged in
+the caption as a possible future addition rather than silently dropped.
+
+**F5 [TEXT/FIG] — General polish. DONE (scoped).** (ED)
+Palette was already colour-blind-safe (Okabe-Ito) throughout. Fixed the
+broken-ℓ0/ℓ2-subscript-in-PDF-text-layer complaint (X3) at the root: set
+matplotlib's `pdf.fonttype`/`ps.fonttype` to 42 (TrueType) globally, since the
+default Type 3 embedding has no `ToUnicode` CMap — this fixes every figure
+the notebook produces, not just the ones touched this pass. Added a one-line
+takeaway to the two plainest captions touched by F1; did not do a full
+caption pass on figures outside F1–F4's scope (ablation/E4/E1b figures already
+state takeaways from their own workstreams).
 
 ---
 
@@ -297,11 +432,11 @@ Gather L1/L3/L4 plus existing caveats (binary-only, balanced-data-only, narrow b
 2. **M1–M4, M6** (formalism + notation, incl. verified guidance/target split) — unblocks everything and is cited by every reviewer.
 3. **S1–S3** (stats rework) — decides which claims survive; do before rewriting results prose.
 4. **E2, E4** (common protocol + TabPFN instrumentation) — needed for uniform tables and the efficiency demonstration; feeds E1b. E4's mechanism is verified, so this is instrumentation + the runtime-vs-calls plot, not discovery.
-5. **A1–A2** (ablations) — the other must-have empirical addition.
+5. **A1–A2** (ablations) — the other must-have empirical addition. **COMPLETE**, see Workstream 5.
 6. **E1b, E5** (scaling analysis + DiCE-genetic/random split) — scaling analysis replaces the declined MOC run and depends on E4's call counts; E5 depends on E5b being resolved. **E1 is a decision + text task (not running MOC), do it alongside R1w/R2w.**
-7. **F1–F4** (figures) — regenerate once the corrected/new numbers exist.
+7. **F1–F4** (figures) — regenerate once the corrected/new numbers exist. **COMPLETE**, see Workstream 6.
 8. **E3, E6, L2** (equal-budget, metric, extra trade-off case) — strengthen.
-9. **M5, M7, M8, R1w–R4w, A3, S5, L1, L3–L5, F5, X1–X3** (write-up, related work, tempering, polish).
+9. **M5, M7, M8, R1w–R4w, A3, S5, L1, L3–L5, F5, X1–X3** (write-up, related work, tempering, polish). F5 and X3's PDF-subscript fix are **COMPLETE**, see Workstream 6; the rest of this bundle is still open.
 
 ## Comment → section map (for your response letter)
 
