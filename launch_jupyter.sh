@@ -10,7 +10,7 @@
 #SBATCH --output=job.%j.out         # Stdout (%j=jobId)
 #SBATCH --error=job.%j.err          # Stderr (%j=jobId)
 #SBATCH --time=23:59:00             # Walltime
-#SBATCH -A p241                     # Accounting project
+#SBATCH -A p318                     # Accounting project
 
 
 # Load any necessary modules and activate environment
