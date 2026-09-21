@@ -724,7 +724,16 @@ def stageC_select_best(
     feature_info: Optional[FeatureInfo] = None,
     constraints: Optional[FeatureConstraints] = None,
     sources: Optional[np.ndarray] = None,
+    order: str = "l0_l2",
 ) -> Tuple[Optional[np.ndarray], Dict[str, Any]]:
+    """
+    order: lexicographic priority for the final selection.
+      "l0_l2" (default) — sparsity first, then proximity, then margin (unchanged
+        behaviour; matches the paper's Algorithm 1).
+      "l2_l0" — proximity first, then sparsity, then margin (A2 ablation only).
+    """
+    if order not in ("l0_l2", "l2_l0"):
+        raise ValueError(f"Unknown order: {order!r}")
 
     x_f = np.asarray(x_f, dtype=np.float64).reshape(-1)
     C = np.asarray(C, dtype=np.float64)
@@ -830,8 +839,11 @@ def stageC_select_best(
                 sf = sf[strong]
             #Cf, pf, l0, l2 = Cf[strong], pf[strong], l0[strong], l2[strong]
 
-    order = np.lexsort((np.abs(pf - 0.5), l2, l0))
-    best = int(order[0])
+    if order == "l0_l2":
+        sort_order = np.lexsort((np.abs(pf - 0.5), l2, l0))
+    else:  # "l2_l0"
+        sort_order = np.lexsort((np.abs(pf - 0.5), l0, l2))
+    best = int(sort_order[0])
     x_cf = Cf[best].astype(np.float32, copy=False)
 
     rep = {
