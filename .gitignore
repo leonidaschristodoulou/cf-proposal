@@ -31,6 +31,8 @@ ENV/
 *.pkl
 *.pickle
 *.joblib
+# manual pre-merge backups of result files
+*.joblib.pre_*
 
 # OS
 .DS_Store
